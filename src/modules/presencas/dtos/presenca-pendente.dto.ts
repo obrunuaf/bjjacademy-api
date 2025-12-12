@@ -14,11 +14,14 @@ export class PresencaPendenteDto {
   aulaId: string;
 
   @ApiProperty()
-  turma: string;
+  turmaNome: string;
 
   @ApiProperty()
-  tipo: 'MANUAL' | 'QR';
+  dataInicio: string;
 
   @ApiProperty()
-  statusAtual: 'PENDENTE';
+  origem: 'MANUAL' | 'QR_CODE' | 'SISTEMA';
+
+  @ApiProperty()
+  status: 'PENDENTE';
 }

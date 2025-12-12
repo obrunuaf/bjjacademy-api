@@ -7,10 +7,11 @@ import {
 } from '@nestjs/swagger';
 import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser as CurrentUserDecorator } from '../../common/decorators/user.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { CheckinService } from './checkin.service';
+import { CheckinService, CurrentUser } from './checkin.service';
 import { CheckinDisponivelDto } from './dtos/checkin-disponivel.dto';
 import { CheckinResponseDto } from './dtos/checkin-response.dto';
 import { CreateCheckinDto } from './dtos/create-checkin.dto';
@@ -26,8 +27,10 @@ export class CheckinController {
   @Roles(UserRole.ALUNO)
   @ApiOperation({ summary: 'Lista aulas do dia para check-in' })
   @ApiOkResponse({ type: [CheckinDisponivelDto] })
-  async listarDisponiveis(): Promise<CheckinDisponivelDto[]> {
-    return this.checkinService.listarDisponiveis();
+  async listarDisponiveis(
+    @CurrentUserDecorator() user: CurrentUser,
+  ): Promise<CheckinDisponivelDto[]> {
+    return this.checkinService.listarDisponiveis(user);
   }
 
   @Post()
@@ -36,7 +39,8 @@ export class CheckinController {
   @ApiCreatedResponse({ type: CheckinResponseDto })
   async criarCheckin(
     @Body() dto: CreateCheckinDto,
+    @CurrentUserDecorator() user: CurrentUser,
   ): Promise<CheckinResponseDto> {
-    return this.checkinService.criarCheckin(dto);
+    return this.checkinService.criarCheckin(dto, user);
   }
 }

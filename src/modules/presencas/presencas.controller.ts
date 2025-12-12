@@ -1,15 +1,21 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import {
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  ParseUUIDPipe,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser as CurrentUserDecorator } from '../../common/decorators/user.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
-import { PresencasService } from './presencas.service';
+import { CheckinResponseDto } from '../checkin/dtos/checkin-response.dto';
+import { CurrentUser, PresencasService } from './presencas.service';
 import { PresencaPendenteDto } from './dtos/presenca-pendente.dto';
 import { UpdatePresencaStatusDto } from './dtos/update-presenca-status.dto';
 
@@ -24,18 +30,21 @@ export class PresencasController {
   @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
   @ApiOperation({ summary: 'Lista presenças pendentes' })
   @ApiOkResponse({ type: [PresencaPendenteDto] })
-  async listarPendencias(): Promise<PresencaPendenteDto[]> {
-    return this.presencasService.listarPendencias();
+  async listarPendencias(
+    @CurrentUserDecorator() user: CurrentUser,
+  ): Promise<PresencaPendenteDto[]> {
+    return this.presencasService.listarPendencias(user);
   }
 
   @Patch(':id/status')
   @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
   @ApiOperation({ summary: 'Atualiza status de presença' })
-  @ApiOkResponse({ schema: { example: { id: 'presenca-1', status: 'PRESENTE' } } })
+  @ApiOkResponse({ type: CheckinResponseDto })
   async atualizarStatus(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdatePresencaStatusDto,
-  ) {
-    return this.presencasService.atualizarStatus(id, dto);
+    @CurrentUserDecorator() user: CurrentUser,
+  ): Promise<CheckinResponseDto> {
+    return this.presencasService.atualizarStatus(id, dto, user);
   }
 }

@@ -8,14 +8,17 @@ export class HistoricoPresencaDto {
   aulaId: string;
 
   @ApiProperty()
-  data: string;
+  dataInicio: string;
 
   @ApiProperty()
-  turma: string;
+  turmaNome: string;
 
-  @ApiProperty()
-  tipoTreino: string;
+  @ApiProperty({ required: false, nullable: true })
+  tipoTreino?: string | null;
 
-  @ApiProperty({ enum: ['PRESENTE', 'FALTA', 'PENDENTE', 'AJUSTADO'] })
-  status: 'PRESENTE' | 'FALTA' | 'PENDENTE' | 'AJUSTADO';
+  @ApiProperty({ enum: ['PRESENTE', 'FALTA', 'PENDENTE', 'JUSTIFICADA', 'AJUSTADO'] })
+  status: 'PRESENTE' | 'FALTA' | 'PENDENTE' | 'JUSTIFICADA' | 'AJUSTADO';
+
+  @ApiProperty({ enum: ['MANUAL', 'QR_CODE', 'SISTEMA'] })
+  origem: 'MANUAL' | 'QR_CODE' | 'SISTEMA';
 }

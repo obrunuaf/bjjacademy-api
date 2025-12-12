@@ -2,17 +2,23 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class CheckinResponseDto {
   @ApiProperty()
-  presencaId: string;
+  id: string;
 
   @ApiProperty()
   aulaId: string;
 
   @ApiProperty()
-  status: 'PENDENTE' | 'PRESENTE' | 'REJEITADO';
+  alunoId: string;
+
+  @ApiProperty({ enum: ['PENDENTE', 'PRESENTE', 'FALTA', 'JUSTIFICADA', 'AJUSTADO'] })
+  status: 'PENDENTE' | 'PRESENTE' | 'FALTA' | 'JUSTIFICADA' | 'AJUSTADO';
+
+  @ApiProperty({ enum: ['MANUAL', 'QR_CODE', 'SISTEMA'] })
+  origem: 'MANUAL' | 'QR_CODE' | 'SISTEMA';
 
   @ApiProperty()
-  tipo: 'MANUAL' | 'QR';
+  criadoEm: string;
 
   @ApiProperty({ required: false })
-  mensagem?: string;
+  registradoPor?: string;
 }

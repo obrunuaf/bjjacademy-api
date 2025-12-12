@@ -5,14 +5,20 @@ export class CheckinDisponivelDto {
   aulaId: string;
 
   @ApiProperty()
-  horario: string;
+  turmaNome: string;
 
   @ApiProperty()
-  turma: string;
+  dataInicio: string;
 
   @ApiProperty()
-  tipoTreino: string;
+  dataFim: string;
 
-  @ApiProperty({ description: 'Status do check-in do aluno para a aula' })
-  statusCheckin: 'NAO_FEITO' | 'PENDENTE' | 'PRESENTE';
+  @ApiProperty({ required: false, nullable: true })
+  tipoTreino: string | null;
+
+  @ApiProperty()
+  statusAula: string;
+
+  @ApiProperty({ description: 'Indica se ja existe presenca para o aluno na aula' })
+  jaFezCheckin: boolean;
 }

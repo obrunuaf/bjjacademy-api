@@ -1,4 +1,10 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -34,7 +40,10 @@ export class AulasController {
   @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
   @ApiOperation({ summary: 'Obtem token de QR Code da aula' })
   @ApiOkResponse({ type: AulaQrCodeDto })
-  async obterQrCode(@Param('id') id: string): Promise<AulaQrCodeDto> {
-    return this.aulasService.gerarQrCode(id);
+  async obterQrCode(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<AulaQrCodeDto> {
+    return this.aulasService.gerarQrCode(id, user);
   }
 }

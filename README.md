@@ -14,7 +14,7 @@ cp .env.example .env
 Preencha:
 - `DATABASE_URL=postgresql://...` (string do Supabase/Postgres; use `?sslmode=require` no Supabase)
 - `JWT_SECRET=chave-super-forte` (obrigatorio, nao commitar)
-- Opcionais: `JWT_EXPIRES_IN=1h`, `PORT=3000`
+- Opcionais: `JWT_EXPIRES_IN=1h`, `PORT=3000`, `QR_TTL_MINUTES=5`
 - Timezone/SSL:
   - `APP_TIMEZONE=America/Sao_Paulo` (usado para calcular janela de "hoje" em UTC)
   - `PG_SSL=true` (default true para Supabase)
@@ -131,6 +131,60 @@ Dashboard staff (mesmo cenario, data fora do calendario das seeds):
 }
 ```
 
+## Check-in & Presencas (MVP real)
+- Endpoints protegidos com `@ApiAuth()` no Swagger (`/v1/docs`); clique em **Authorize** e cole somente o `accessToken` do login.
+- Usa `APP_TIMEZONE` para a janela de "hoje" ([startUtc, endUtc)) e `QR_TTL_MINUTES` (default `5`) para o vencimento do QR.
+- ALUNO so enxerga a propria presenca; STAFF acessa apenas a academia do token.
+
+Fluxo rapido (curl):
+```bash
+# logins
+ALUNO_TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"aluno.seed@example.com","senha":"SenhaAluno123"}' | jq -r .accessToken)
+STAFF_TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"instrutor.seed@example.com","senha":"SenhaInstrutor123"}' | jq -r .accessToken)
+
+# aulas disponiveis hoje para check-in do aluno
+curl http://localhost:3000/v1/checkin/disponiveis \
+  -H "Authorization: Bearer $ALUNO_TOKEN"
+
+# gerar QR de uma aula (staff) e extrair token
+AULA_ID="<copie uma aula de /checkin/disponiveis ou /aulas/hoje>"
+QR=$(curl -s http://localhost:3000/v1/aulas/$AULA_ID/qrcode \
+  -H "Authorization: Bearer $STAFF_TOKEN")
+QR_TOKEN=$(echo "$QR" | jq -r .qrToken)
+
+# check-in via QR (ALUNO) -> status PRESENTE
+curl -X POST http://localhost:3000/v1/checkin \
+  -H "Authorization: Bearer $ALUNO_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"aulaId\":\"$AULA_ID\",\"tipo\":\"QR\",\"qrToken\":\"$QR_TOKEN\"}"
+
+# check-in manual (ALUNO) -> status PENDENTE
+curl -X POST http://localhost:3000/v1/checkin \
+  -H "Authorization: Bearer $ALUNO_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"aulaId\":\"$AULA_ID\",\"tipo\":\"MANUAL\"}"
+
+# pendencias do dia (STAFF)
+curl http://localhost:3000/v1/presencas/pendencias \
+  -H "Authorization: Bearer $STAFF_TOKEN"
+
+# aprovar/ajustar presenca (STAFF)
+PRESENCA_ID="<id retornado em pendencias>"
+curl -X PATCH http://localhost:3000/v1/presencas/$PRESENCA_ID/status \
+  -H "Authorization: Bearer $STAFF_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"PRESENTE"}'
+
+# historico do aluno (ALUNO so o proprio; STAFF mesma academia)
+ALUNO_ID="<id do aluno>"
+curl "http://localhost:3000/v1/alunos/$ALUNO_ID/historico-presencas?from=2025-01-01" \
+  -H "Authorization: Bearer $ALUNO_TOKEN"
+```
+
 ## Seed personas (Academia Seed BJJ)
 - ALUNO: `aluno.seed@example.com` / `SenhaAluno123`
 - INSTRUTOR: `instrutor.seed@example.com` / `SenhaInstrutor123`
@@ -140,6 +194,6 @@ Dashboard staff (mesmo cenario, data fora do calendario das seeds):
 - Se alterar `JWT_SECRET`, todos os tokens antigos (emitidos antes da troca) deixam de funcionar.
 
 ## Estado atual da API
-- **Real (Postgres):** `POST /v1/auth/login`, `GET /v1/auth/me`, `GET /v1/auth/convite/:codigo`, `POST /v1/auth/register`, `GET /v1/dashboard/aluno`, `GET /v1/dashboard/staff`, `GET /v1/alunos`, `GET /v1/alunos/:id`, `GET /v1/alunos/:id/evolucao`, `GET /v1/turmas`, `GET /v1/aulas/hoje`.
-- **Stub/mock (retorno provisorio):** `GET /v1/aulas/:id/qrcode`, `GET /v1/checkin/disponiveis`, `POST /v1/checkin`, `GET /v1/presencas/pendencias`, `PATCH /v1/presencas/:id/status`, `GET /v1/alunos/:id/historico-presencas`, `GET /v1/config/*`, `POST /v1/invites`, `POST /v1/graduacoes`, `POST /v1/auth/refresh`, `POST /v1/auth/forgot-password`, `POST /v1/auth/reset-password`.
+- **Real (Postgres):** `POST /v1/auth/login`, `GET /v1/auth/me`, `GET /v1/auth/convite/:codigo`, `POST /v1/auth/register`, `GET /v1/dashboard/aluno`, `GET /v1/dashboard/staff`, `GET /v1/alunos`, `GET /v1/alunos/:id`, `GET /v1/alunos/:id/evolucao`, `GET /v1/alunos/:id/historico-presencas`, `GET /v1/turmas`, `GET /v1/aulas/hoje`, `GET /v1/aulas/:id/qrcode`, `GET /v1/checkin/disponiveis`, `POST /v1/checkin`, `GET /v1/presencas/pendencias`, `PATCH /v1/presencas/:id/status`.
+- **Stub/mock (retorno provisorio):** `GET /v1/config/*`, `POST /v1/invites`, `POST /v1/graduacoes`, `POST /v1/auth/refresh`, `POST /v1/auth/forgot-password`, `POST /v1/auth/reset-password`.
 - Prefixo global `/v1`; Swagger em `/v1/docs`.

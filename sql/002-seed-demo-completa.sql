@@ -212,6 +212,27 @@ where a.codigo_convite = 'BJJ-SEED1'
       and date(au.data_inicio) = d
   );
 
+-- Aula garantida "hoje" para cenários de teste (se não existir ainda)
+insert into aulas (academia_id, turma_id, data_inicio, data_fim, status, qr_token, qr_expires_at)
+select
+  a.id as academia_id,
+  t.id as turma_id,
+  (current_date + time '19:00')::timestamptz as data_inicio,
+  (current_date + time '20:30')::timestamptz as data_fim,
+  'AGENDADA' as status,
+  null,
+  null
+from academias a
+join turmas t
+  on t.academia_id = a.id
+ and t.nome = 'Adulto Gi Noite'
+where a.codigo_convite = 'BJJ-SEED1'
+  and not exists (
+    select 1 from aulas au
+    where au.turma_id = t.id
+      and au.data_inicio::date = current_date
+  );
+
 -- ============================
 -- 10) GRADUAÇÕES (FAIXA / GRAU)
 -- ============================

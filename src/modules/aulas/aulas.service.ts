@@ -1,9 +1,15 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { DatabaseService } from '../../database/database.service';
 import { AulaQrCodeDto } from './dtos/aula-qrcode.dto';
 import { AulaDto } from './dtos/aula.dto';
 
 export type CurrentUser = {
+  id: string;
   academiaId: string;
 };
 
@@ -17,6 +23,13 @@ type AulaRow = {
   turma_horario_padrao: string;
   tipo_treino: string;
   instrutor_nome: string | null;
+};
+
+type AulaQrRow = {
+  id: string;
+  academia_id: string;
+  data_inicio: string;
+  turma_nome: string;
 };
 
 @Injectable()
@@ -66,14 +79,62 @@ export class AulasService {
     }));
   }
 
-  async gerarQrCode(id: string): Promise<AulaQrCodeDto> {
+  async gerarQrCode(
+    id: string,
+    currentUser: CurrentUser,
+  ): Promise<AulaQrCodeDto> {
+    const aula = await this.databaseService.queryOne<AulaQrRow>(
+      `
+        select
+          a.id,
+          a.academia_id,
+          a.data_inicio,
+          t.nome as turma_nome
+        from aulas a
+        join turmas t on t.id = a.turma_id
+        where a.id = $1
+        limit 1;
+      `,
+      [id],
+    );
+
+    if (!aula) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+
+    if (aula.academia_id !== currentUser.academiaId) {
+      throw new ForbiddenException('Aula nao pertence a academia do usuario');
+    }
+
+    const ttlMinutes = this.resolveQrTtlMinutes();
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000);
+    const qrToken = randomBytes(32).toString('hex');
+
+    await this.databaseService.query(
+      `
+        update aulas
+           set qr_token = $1,
+               qr_expires_at = $2
+         where id = $3
+           and academia_id = $4;
+      `,
+      [qrToken, expiresAt, id, currentUser.academiaId],
+    );
+
     return {
       aulaId: id,
-      qrToken: 'mock-qr-token',
-      expiresAt: new Date(Date.now() + 5 * 60000).toISOString(),
-      turma: 'Turma padrao',
-      horario: new Date().toISOString(),
+      qrToken,
+      expiresAt: expiresAt.toISOString(),
+      turma: aula.turma_nome,
+      horario: new Date(aula.data_inicio).toISOString(),
     };
-    // TODO: gerar token seguro com TTL (spec 3.4.3)
+  }
+
+  private resolveQrTtlMinutes(): number {
+    const raw = Number(process.env.QR_TTL_MINUTES ?? 5);
+    if (Number.isFinite(raw) && raw > 0) {
+      return raw;
+    }
+    return 5;
   }
 }

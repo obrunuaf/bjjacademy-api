@@ -1,16 +1,20 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import {
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser as CurrentUserDecorator } from '../../common/decorators/user.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { CurrentUser, PresencasService } from './presencas.service';
 import { HistoricoPresencaDto } from './dtos/historico-presenca.dto';
-import { PresencasService } from './presencas.service';
 
 @ApiTags('Presencas')
 @ApiAuth()
@@ -29,7 +33,12 @@ export class AlunoPresencasController {
   )
   @ApiOperation({ summary: 'Histórico de presenças do aluno' })
   @ApiOkResponse({ type: [HistoricoPresencaDto] })
-  async historico(@Param('id') id: string): Promise<HistoricoPresencaDto[]> {
-    return this.presencasService.historicoDoAluno(id);
+  async historico(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUserDecorator() user: CurrentUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<HistoricoPresencaDto[]> {
+    return this.presencasService.historicoDoAluno(id, user, { from, to });
   }
 }

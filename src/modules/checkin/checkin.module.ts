@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../database/database.module';
 import { CheckinController } from './checkin.controller';
 import { CheckinService } from './checkin.service';
 
 @Module({
+  imports: [DatabaseModule],
   controllers: [CheckinController],
   providers: [CheckinService],
 })

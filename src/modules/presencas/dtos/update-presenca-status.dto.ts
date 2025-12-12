@@ -2,7 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsIn } from 'class-validator';
 
 export class UpdatePresencaStatusDto {
-  @ApiProperty({ enum: ['PRESENTE', 'FALTA', 'AJUSTADO'] })
-  @IsIn(['PRESENTE', 'FALTA', 'AJUSTADO'])
-  status: 'PRESENTE' | 'FALTA' | 'AJUSTADO';
+  @ApiProperty({ enum: ['PRESENTE', 'FALTA', 'JUSTIFICADA'] })
+  @IsIn(['PRESENTE', 'FALTA', 'JUSTIFICADA'])
+  status: 'PRESENTE' | 'FALTA' | 'JUSTIFICADA';
 }

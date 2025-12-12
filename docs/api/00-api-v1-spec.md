@@ -299,11 +299,83 @@ curl http://localhost:3000/v1/auth/me \
   ]
   ```
 
-### 3.5 Check-in & Presencas
+### 3.5 Check-in & Presencas (real)
 
-- `GET /checkin/disponiveis` - aulas disponiveis para check-in (planejado).
-- `POST /checkin` - efetiva check-in (validando QR/horario, planejado).
-- `GET /presencas` e endpoints de ajuste/validacao (planejado).
+**Regras gerais**
+- Janela de hoje usa `APP_TIMEZONE` para montar [startUtc, endUtc); aplicada em `/checkin/disponiveis` e `/presencas/pendencias`.
+- Escopo: `ALUNO` so enxerga o proprio historico/check-in; `STAFF` (INSTRUTOR/PROFESSOR/ADMIN/TI) so ve dados da `academiaId` do token.
+- Duplicidade: `presencas` tem unique `(aula_id, aluno_id)`; se ja existir retorna `422`.
+- QR Codes: `GET /aulas/:id/qrcode` (roles staff) gera `qrToken` seguro (`crypto.randomBytes`), persiste em `aulas.qr_token/qr_expires_at` e expira conforme `QR_TTL_MINUTES` (default `5` minutos).
+- Status x origem: `MANUAL` cria `PENDENTE` (`origem=MANUAL`), `QR` cria `PRESENTE` (`origem=QR_CODE`); PATCH atualiza `status` e `registrado_por` (usuario staff).
+- Erros: `401` sem token, `403` fora do escopo/academia, `422` para duplicidade, aula cancelada, QR invalido/expirado ou payload incorreto.
+
+#### 3.5.1 GET `/checkin/disponiveis` (ALUNO)
+- Lista aulas de hoje (`aulas.status <> 'CANCELADA'`) da academia do token e indica se o aluno ja possui presenca (`jaFezCheckin`).
+- Retorna: `aulaId`, `turmaNome`, `dataInicio`, `dataFim`, `tipoTreino`, `statusAula`, `jaFezCheckin`.
+- Requer matricula `ATIVA` na academia; senao `403`.
+
+#### 3.5.2 POST `/checkin` (ALUNO)
+- Payload: `{ "aulaId": "uuid", "tipo": "MANUAL" | "QR", "qrToken": "opcional" }`.
+- Validacoes: aula existe e pertence a academia do token; aluno tem matricula `ATIVA`; `tipo=QR` exige `qrToken` igual a `aulas.qr_token` e `qr_expires_at > now()`; bloqueia duplicidade (`422`).
+- Criacao: `MANUAL` -> `status=PENDENTE`, `origem=MANUAL`; `QR` -> `status=PRESENTE`, `origem=QR_CODE`; `registrado_por` = usuario do token.
+- Resposta: `{ id, aulaId, alunoId, status, origem, criadoEm, registradoPor }`.
+
+#### 3.5.3 GET `/presencas/pendencias` (STAFF)
+- Lista presencas `status='PENDENTE'` de hoje (usa janela de hoje via `aulas.data_inicio`) para a academia do token.
+- Retorna: `id`, `alunoId`, `alunoNome`, `aulaId`, `turmaNome`, `dataInicio`, `origem`, `status`.
+
+#### 3.5.4 PATCH `/presencas/:id/status` (STAFF)
+- Payload: `{ "status": "PRESENTE" | "FALTA" | "JUSTIFICADA" }`.
+- Valida `id` (UUID) e academia; atualiza `status` e `registrado_por` com o staff do token. Resposta devolve a presenca atualizada.
+
+#### 3.5.5 GET `/alunos/:id/historico-presencas`
+- Roles: `ALUNO` (somente o proprio id) ou `STAFF` da mesma academia.
+- Query opcional: `from=YYYY-MM-DD`, `to=YYYY-MM-DD` (limite padrao 50 itens).
+- Retorna: `presencaId`, `aulaId`, `dataInicio`, `turmaNome`, `tipoTreino`, `status`, `origem`.
+
+#### 3.5.6 GET `/aulas/:id/qrcode` (STAFF)
+- Gera/atualiza `qr_token` e `qr_expires_at` da aula (academia validada). TTL em minutos via env `QR_TTL_MINUTES` (fallback 5).
+- Resposta: `{ "aulaId": "...", "qrToken": "...", "expiresAt": "..." }` mais contexto (`turma`, `horario`).
+
+**Curls rapidos**
+```bash
+# login (aluno e staff)
+ALUNO_TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"aluno.seed@example.com","senha":"SenhaAluno123"}' | jq -r .accessToken)
+STAFF_TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"instrutor.seed@example.com","senha":"SenhaInstrutor123"}' | jq -r .accessToken)
+
+# gerar QR (staff)
+AULA_ID="<id retornado de /checkin/disponiveis ou /aulas/hoje>"
+QR=$(curl -s http://localhost:3000/v1/aulas/$AULA_ID/qrcode \
+  -H "Authorization: Bearer $STAFF_TOKEN")
+QR_TOKEN=$(echo "$QR" | jq -r .qrToken)
+
+# check-in via QR (aluno)
+curl -X POST http://localhost:3000/v1/checkin \
+  -H "Authorization: Bearer $ALUNO_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"aulaId\":\"$AULA_ID\",\"tipo\":\"QR\",\"qrToken\":\"$QR_TOKEN\"}"
+
+# check-in manual (aluno)
+curl -X POST http://localhost:3000/v1/checkin \
+  -H "Authorization: Bearer $ALUNO_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"aulaId\":\"$AULA_ID\",\"tipo\":\"MANUAL\"}"
+
+# pendencias (staff)
+curl http://localhost:3000/v1/presencas/pendencias \
+  -H "Authorization: Bearer $STAFF_TOKEN"
+
+# aprovar/ajustar (staff)
+PRESENCA_ID="<id>"
+curl -X PATCH http://localhost:3000/v1/presencas/$PRESENCA_ID/status \
+  -H "Authorization: Bearer $STAFF_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status":"PRESENTE"}'
+```
 
 ### 3.6 Configuracoes
 

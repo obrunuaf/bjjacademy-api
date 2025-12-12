@@ -1,9 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateIf,
+} from 'class-validator';
 
 export class CreateCheckinDto {
   @ApiProperty()
-  @IsString()
+  @IsUUID()
   aulaId: string;
 
   @ApiProperty({ enum: ['MANUAL', 'QR'] })
@@ -11,7 +18,8 @@ export class CreateCheckinDto {
   tipo: 'MANUAL' | 'QR';
 
   @ApiProperty({ required: false })
-  @IsOptional()
+  @ValidateIf((dto) => dto.tipo === 'QR')
   @IsString()
+  @IsNotEmpty()
   qrToken?: string;
 }
