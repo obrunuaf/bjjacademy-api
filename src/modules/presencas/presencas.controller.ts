@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -14,7 +14,7 @@ import { PresencaPendenteDto } from './dtos/presenca-pendente.dto';
 import { UpdatePresencaStatusDto } from './dtos/update-presenca-status.dto';
 
 @ApiTags('Presencas')
-@ApiBearerAuth('JWT')
+@ApiAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('presencas')
 export class PresencasController {

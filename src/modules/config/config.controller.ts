@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -15,7 +15,7 @@ import { TipoTreinoDto } from './dtos/tipo-treino.dto';
 import { UpdateRegraGraduacaoDto } from './dtos/update-regra-graduacao.dto';
 
 @ApiTags('Config')
-@ApiBearerAuth('JWT')
+@ApiAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('config')
 export class ConfigController {

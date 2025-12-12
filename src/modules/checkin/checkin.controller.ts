@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -16,7 +16,7 @@ import { CheckinResponseDto } from './dtos/checkin-response.dto';
 import { CreateCheckinDto } from './dtos/create-checkin.dto';
 
 @ApiTags('Checkin')
-@ApiBearerAuth('JWT')
+@ApiAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('checkin')
 export class CheckinController {

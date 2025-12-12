@@ -36,11 +36,22 @@ npm run start:dev
 ```
 Swagger: `http://localhost:3000/v1/docs`
 
-## Autenticacao no Swagger
-1) Faca login em `POST /v1/auth/login` com uma credencial seed.
-2) Copie o `accessToken`.
-3) Clique em **Authorize** (esquema `JWT`) e cole **exatamente** `Bearer <accessToken>`.
-4) Execute `GET /v1/auth/me` e demais rotas protegidas. Sem o prefixo `Bearer` o Swagger retorna `401 Unauthorized`.
+## Como autenticar no Swagger
+- Abra `http://localhost:3000/v1/docs` e clique em **Authorize** (esquema `JWT`).
+- Faca login em `POST /v1/auth/login` e copie o `accessToken`.
+- No modal, cole **somente** o `accessToken` (sem o prefixo `Bearer`); o Swagger adiciona `Authorization: Bearer ...` automaticamente.
+- Rode `GET /v1/auth/me` e `GET /v1/dashboard/aluno`. Se vier `401`, confira se a rota tem `@ApiBearerAuth('JWT')` (ja padronizado via `@ApiAuth()`).
+- Exemplo rapido (mesmo token funciona no Swagger):
+  ```bash
+  # login
+  ACCESS_TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"aluno.seed@example.com","senha":"SenhaAluno123"}' \
+    | jq -r .accessToken)
+
+  # perfil autenticado
+  curl http://localhost:3000/v1/auth/me -H "Authorization: Bearer $ACCESS_TOKEN"
+  ```
 
 ## Multi-tenant
 Todas as consultas devem ser filtradas pelo `academiaId` presente no JWT. Os dashboards ja aplicam esse filtro em matriculas, aulas, presencas e regras de graduacao.

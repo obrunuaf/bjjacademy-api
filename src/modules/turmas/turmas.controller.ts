@@ -1,10 +1,10 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -13,7 +13,7 @@ import { TurmaDto } from './dtos/turma.dto';
 import { TurmasService } from './turmas.service';
 
 @ApiTags('Turmas')
-@ApiBearerAuth('JWT')
+@ApiAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('turmas')
 export class TurmasController {

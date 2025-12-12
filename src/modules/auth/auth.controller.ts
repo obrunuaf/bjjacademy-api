@@ -1,12 +1,12 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { ApiAuth } from '../../common/decorators/api-auth.decorator';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { AuthTokensDto } from './dtos/auth-tokens.dto';
@@ -33,7 +33,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('JWT')
+  @ApiAuth()
   @ApiOperation({ summary: 'Retorna dados do usuario autenticado' })
   @ApiOkResponse({ type: MeResponseDto })
   async me(

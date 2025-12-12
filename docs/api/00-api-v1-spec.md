@@ -17,7 +17,7 @@ Documento de referencia rapida da API v1 do ecossistema **BJJAcademy / BJJAcadem
 - **Base URL / versao**: todas as rotas sao servidas em `/v1` (ex.: `http://localhost:3000/v1`).
 - **Formato**: JSON; headers padrao `Content-Type: application/json; charset=utf-8`.
 - **Autenticacao**: Bearer JWT no header `Authorization: Bearer <token>`.
-- **Swagger/Authorize**: em `/v1/docs`, clique em **Authorize** e informe `Bearer <accessToken>` (com o prefixo) para testar rotas protegidas.
+- **Swagger/Authorize**: em `/v1/docs`, clique em **Authorize** (esquema `JWT`) e cole apenas o `accessToken` (sem `Bearer`); o Swagger prefixa o header e so envia para rotas anotadas com `@ApiBearerAuth('JWT')`.
 - **Multi-tenant**: todas as consultas devem ser filtradas pelo `academiaId` presente no JWT (dashboards, presencas, regras, etc.).
 - **Claims do JWT** (emitido no login):
   - `sub`: id do usuario (`usuarios.id`)
@@ -83,9 +83,11 @@ Retorna o perfil do usuario autenticado, incluindo:
 
 1. Chamar `POST /v1/auth/login` com `email` e `senha`.
 2. Copiar o campo `accessToken` da resposta.
-3. No Swagger, clicar em **Authorize** (cadeado verde).
-4. Preencher com `Bearer <accessToken>` (prefixo incluso).
+3. No Swagger, clicar em **Authorize** (cadeado verde) no esquema `JWT`.
+4. Preencher com **somente** o `accessToken` (sem prefixo); o Swagger ja envia `Authorization: Bearer ...`.
 5. Confirmar, fechar o modal e executar `GET /v1/auth/me`.
+
+O header so e enviado para rotas anotadas com `@ApiBearerAuth('JWT')`; controllers privados usam `@ApiAuth()` para manter o swagger alinhado com os guards.
 
 O Swagger enviara automaticamente `Authorization: Bearer <accessToken>`.
 
