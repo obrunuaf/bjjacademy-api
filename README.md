@@ -94,6 +94,10 @@ ACCESS_TOKEN="<token-professor>"
 curl http://localhost:3000/v1/home \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 
+# STAFF forçando modo staff explicitamente
+curl "http://localhost:3000/v1/home?mode=staff" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
 # STAFF vendo modo aluno (precisa ter ALUNO em roles)
 curl "http://localhost:3000/v1/home?mode=aluno" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
@@ -102,6 +106,10 @@ curl "http://localhost:3000/v1/home?mode=aluno" \
 curl "http://localhost:3000/v1/home?mode=staff" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
+
+Notas:
+- Personas seed de staff (ex.: professor) trazem `roles` como `["PROFESSOR","ALUNO"]`, entao podem usar `mode=aluno` ou `mode=staff`.
+- Aluno puro nao possui papel staff, entao `mode=staff` retorna 403.
 
 ## Timezone e "hoje"
 - O backend calcula a janela de "hoje" com base em `APP_TIMEZONE` (padrao `America/Sao_Paulo`) usando SQL (`date_trunc`), gerando [startUtc, endUtc) para filtrar `aulas.data_inicio` (timestamptz).

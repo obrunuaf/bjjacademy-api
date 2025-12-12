@@ -185,6 +185,10 @@ curl http://localhost:3000/v1/auth/me \
   curl http://localhost:3000/v1/home \
     -H "Authorization: Bearer $ACCESS_TOKEN"
 
+  # staff forçando modo staff explicitamente
+  curl "http://localhost:3000/v1/home?mode=staff" \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+
   # staff enxergando modo aluno (precisa ALUNO em roles)
   curl "http://localhost:3000/v1/home?mode=aluno" \
     -H "Authorization: Bearer $ACCESS_TOKEN"
@@ -193,6 +197,10 @@ curl http://localhost:3000/v1/auth/me \
   curl "http://localhost:3000/v1/home?mode=staff" \
     -H "Authorization: Bearer $ACCESS_TOKEN"
   ```
+
+Notas:
+- Persona professor no seed possui `roles=["PROFESSOR","ALUNO"]`, entao pode usar `mode=aluno` ou `mode=staff`.
+- Aluno puro nao tem papel staff, portanto `mode=staff` retorna 403.
 
 #### 3.2.1 GET `/dashboard/aluno` (real)
 
