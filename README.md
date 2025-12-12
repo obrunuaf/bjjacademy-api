@@ -63,6 +63,21 @@ Swagger: `http://localhost:3000/v1/docs`
 ## Multi-tenant
 Todas as consultas devem ser filtradas pelo `academiaId` presente no JWT. Os dashboards ja aplicam esse filtro em matriculas, aulas, presencas e regras de graduacao.
 
+## Multi-role (seed)
+- Tokens agora carregam `role` (papel principal) **e** `roles` (todos os papeis do usuario na academia do token). Prioridade do papel principal: `TI` > `ADMIN` > `PROFESSOR` > `INSTRUTOR` > `ALUNO`.
+- Nos seeds, instrutor/professor/admin/ti tambem tem papel **ALUNO** na mesma academia, entao endpoints `@Roles('ALUNO')` aceitam esses tokens.
+- Swagger: basta autorizar normalmente; o token ja leva `roles`.
+
+Exemplo com o professor seed acessando rota de aluno (`/v1/checkin/disponiveis`):
+```bash
+PROF_TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"professor.seed@example.com","senha":"SenhaProfessor123"}' | jq -r .accessToken)
+
+curl http://localhost:3000/v1/checkin/disponiveis \
+  -H "Authorization: Bearer $PROF_TOKEN"
+```
+
 ## Timezone e "hoje"
 - O backend calcula a janela de "hoje" com base em `APP_TIMEZONE` (padrao `America/Sao_Paulo`) usando SQL (`date_trunc`), gerando [startUtc, endUtc) para filtrar `aulas.data_inicio` (timestamptz).
 - Endpoints que usam "hoje": `GET /v1/aulas/hoje` e contadores do `GET /v1/dashboard/staff`.

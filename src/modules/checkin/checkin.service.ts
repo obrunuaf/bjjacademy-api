@@ -15,6 +15,7 @@ import { CreateCheckinDto } from './dtos/create-checkin.dto';
 export type CurrentUser = {
   id: string;
   role: UserRole;
+  roles: UserRole[];
   academiaId: string;
 };
 

@@ -14,6 +14,7 @@ import { UpdatePresencaStatusDto } from './dtos/update-presenca-status.dto';
 export type CurrentUser = {
   id: string;
   role: UserRole;
+  roles: UserRole[];
   academiaId: string;
 };
 

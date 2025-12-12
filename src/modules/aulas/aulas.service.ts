@@ -4,12 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { DatabaseService } from '../../database/database.service';
 import { AulaQrCodeDto } from './dtos/aula-qrcode.dto';
 import { AulaDto } from './dtos/aula.dto';
 
 export type CurrentUser = {
   id: string;
+  roles: UserRole[];
   academiaId: string;
 };
 

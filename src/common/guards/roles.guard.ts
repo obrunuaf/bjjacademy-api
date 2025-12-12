@@ -26,15 +26,28 @@ export class RolesGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user || !user.role) {
+    if (!user || (!user.role && !user.roles)) {
       throw new ForbiddenException('User role not provided');
+    }
+
+    const rolesFromToken: UserRole[] =
+      (user.roles as UserRole[] | undefined)?.map(
+        (role: string) => (role as string).toUpperCase() as UserRole,
+      ) ?? [];
+
+    if (
+      rolesFromToken.some((role) =>
+        requiredRoles.includes(role as UserRole),
+      )
+    ) {
+      return true;
     }
 
     if (requiredRoles.includes(user.role)) {
       return true;
     }
 
-    // TODO: considerar regras adicionais para TI como superadmin, se aplicável.
+    // TODO: considerar regras adicionais para TI como superadmin, se aplicǭvel.
     throw new ForbiddenException('Insufficient role');
   }
 }

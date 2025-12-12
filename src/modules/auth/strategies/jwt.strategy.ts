@@ -8,6 +8,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: UserRole;
+  roles?: UserRole[];
   academiaId: string;
 }
 
@@ -26,8 +27,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
+      roles: payload.roles ?? (payload.role ? [payload.role] : []),
       academiaId: payload.academiaId,
     };
-    // TODO: carregar usuário/academia e validar role (spec 2.4)
+    // TODO: carregar usuǭrio/academia e validar role (spec 2.4)
   }
 }

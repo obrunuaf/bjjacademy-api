@@ -14,6 +14,9 @@ export class TokenUserDto {
   @ApiProperty({ enum: UserRole })
   role: UserRole;
 
+  @ApiProperty({ type: [String], enum: UserRole })
+  roles: UserRole[];
+
   @ApiProperty()
   academiaId: string;
 }

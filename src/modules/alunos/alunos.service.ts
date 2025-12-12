@@ -12,6 +12,7 @@ import { EvolucaoAlunoDto } from './dtos/evolucao-aluno.dto';
 export type CurrentUser = {
   id: string;
   role: UserRole;
+  roles: UserRole[];
   academiaId: string;
 };
 

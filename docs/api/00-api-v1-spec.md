@@ -24,6 +24,7 @@ Documento de referencia rapida da API v1 do ecossistema **BJJAcademy / BJJAcadem
   - `sub`: id do usuario (`usuarios.id`)
   - `email`
   - `role`: papel principal resolvido para a academia do token
+  - `roles`: lista de papeis do usuario na academia do token
   - `academiaId`: academia atual do usuario
 - **Roles suportados**: `ALUNO`, `INSTRUTOR`, `PROFESSOR`, `ADMIN`, `TI`.
   - Prioridade do papel principal quando o usuario tem multiplos papeis na mesma academia: `TI` > `ADMIN` > `PROFESSOR` > `INSTRUTOR` > `ALUNO`.
@@ -34,6 +35,22 @@ Documento de referencia rapida da API v1 do ecossistema **BJJAcademy / BJJAcadem
   3) No modal, cole apenas o token (nao prefixe `Bearer`); o esquema bearer monta `Authorization: Bearer <token>`.
   4) O header so sera enviado para rotas com `@ApiBearerAuth('JWT')` (todas as privadas usam `@ApiAuth()`).
   5) Execute `GET /v1/auth/me` para validar.
+
+### Multi-role (seed)
+
+- Tokens carregam `role` (principal) e `roles` (todos os papeis do usuario na academia do token). Prioridade do papel principal: `TI` > `ADMIN` > `PROFESSOR` > `INSTRUTOR` > `ALUNO`.
+- Nos seeds, instrutor/professor/admin/ti tambem tem papel **ALUNO**, entao rotas `@Roles('ALUNO')` funcionam para esses tokens.
+- Swagger ja usa o mesmo token (nao muda o fluxo de authorize).
+
+Exemplo real (professor seed consumindo rota de aluno):
+```bash
+PROF_TOKEN=$(curl -s -X POST http://localhost:3000/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"professor.seed@example.com","senha":"SenhaProfessor123"}' | jq -r .accessToken)
+
+curl http://localhost:3000/v1/checkin/disponiveis \
+  -H "Authorization: Bearer $PROF_TOKEN"
+```
 
 ---
 
@@ -63,12 +80,14 @@ Documento de referencia rapida da API v1 do ecossistema **BJJAcademy / BJJAcadem
       "nome": "Aluno Seed",
       "email": "aluno.seed@example.com",
       "role": "ALUNO",
+      "roles": ["ALUNO"],
       "academiaId": "46af..."
     }
   }
   ```
 - **Notas**:
-  - O `accessToken` traz os claims `sub`, `email`, `role`, `academiaId`.
+  - O `accessToken` traz os claims `sub`, `email`, `role`, `roles`, `academiaId`.
+  - `role` e o papel principal (prioridade `TI` > `ADMIN` > `PROFESSOR` > `INSTRUTOR` > `ALUNO`); `roles` lista todos os papeis do usuario na academia do token.
   - O `refreshToken` ainda e mock; rota `/auth/refresh` existe mas sera evoluida.
 - **Exemplo curl**:
   ```bash
@@ -83,7 +102,7 @@ Documento de referencia rapida da API v1 do ecossistema **BJJAcademy / BJJAcadem
 Retorna o perfil do usuario autenticado, incluindo:
 
 - dados basicos (id, nome, email)
-- papel principal na academia atual
+- papeis na academia atual (`role` principal + `roles` completos)
 - vinculo com a academia
 - status da matricula e faixa atual
 
@@ -112,6 +131,7 @@ O Swagger enviara automaticamente `Authorization: Bearer <accessToken>`.
   "nome": "Aluno Seed",
   "email": "aluno.seed@example.com",
   "role": "ALUNO",
+  "roles": ["ALUNO"],
   "academiaId": "46af5505-f3cd-4df2-b856-ce1a33471481",
   "academiaNome": "Academia Seed BJJ",
   "faixaAtual": "azul",

@@ -38,7 +38,13 @@ export class AuthController {
   @ApiOkResponse({ type: MeResponseDto })
   async me(
     @CurrentUser()
-    user: { id: string; email: string; role: UserRole; academiaId: string },
+    user: {
+      id: string;
+      email: string;
+      role: UserRole;
+      roles: UserRole[];
+      academiaId: string;
+    },
   ): Promise<MeResponseDto> {
     return this.authService.me(user);
   }

@@ -34,6 +34,7 @@ type CurrentUser = {
   id: string;
   email: string;
   role: UserRole;
+  roles: UserRole[];
   academiaId: string;
 };
 
@@ -65,10 +66,14 @@ export class AuthService {
     }
 
     const principal = this.pickPrimaryRole(usuarios);
+    const roles = this.getRolesForAcademia(usuarios, principal.academia_id);
+    const primaryRole = this.getPrimaryRole(roles);
+
     const payload = {
       sub: usuario.usuario_id,
       email: usuario.email,
-      role: principal.papel,
+      role: primaryRole,
+      roles,
       academiaId: principal.academia_id,
     };
 
@@ -80,6 +85,7 @@ export class AuthService {
         nome: usuario.nome_completo,
         email: payload.email,
         role: payload.role,
+        roles,
         academiaId: payload.academiaId,
       },
     };
@@ -95,26 +101,28 @@ export class AuthService {
       throw new NotFoundException('Usuario nao encontrado');
     }
 
-    const primary = this.pickPrimaryRole<UserProfileRow>(rows);
-    const role = ((primary.papel as string) ?? UserRole.ALUNO).toUpperCase() as UserRole;
+    const primaryRow = this.pickPrimaryRole<UserProfileRow>(rows);
+    const roles = this.getRolesForAcademia(rows, currentUser.academiaId);
+    const role = this.getPrimaryRole(roles);
 
     // TODO: bloquear usuarios com status diferente de ACTIVE quando login/refresh forem ajustados
-    if (primary.usuario_status !== 'ACTIVE') {
+    if (primaryRow.usuario_status !== 'ACTIVE') {
       // no-op por enquanto; endpoint ainda retorna os dados
     }
 
     return {
-      id: primary.usuario_id,
-      nome: primary.nome_completo,
-      email: primary.email,
+      id: primaryRow.usuario_id,
+      nome: primaryRow.nome_completo,
+      email: primaryRow.email,
       role,
-      academiaId: primary.academia_id,
-      academiaNome: primary.academia_nome,
-      faixaAtual: primary.faixa_atual_slug,
-      grauAtual: primary.grau_atual,
-      matriculaStatus: primary.matricula_status,
-      matriculaDataInicio: primary.matricula_data_inicio,
-      matriculaDataFim: primary.matricula_data_fim,
+      roles,
+      academiaId: primaryRow.academia_id,
+      academiaNome: primaryRow.academia_nome,
+      faixaAtual: primaryRow.faixa_atual_slug,
+      grauAtual: primaryRow.grau_atual,
+      matriculaStatus: primaryRow.matricula_status,
+      matriculaDataInicio: primaryRow.matricula_data_inicio,
+      matriculaDataFim: primaryRow.matricula_data_fim,
     };
   }
 
@@ -124,9 +132,9 @@ export class AuthService {
       throw new NotFoundException('Convite invalido ou expirado');
     }
 
-    const papelSugerido = (
-      (invite.papel_sugerido as string) ?? UserRole.ALUNO
-    ).toUpperCase() as UserRole;
+    const papelSugerido = this.normalizeRole(
+      (invite.papel_sugerido as string) ?? UserRole.ALUNO,
+    );
 
     return {
       codigo,
@@ -169,9 +177,9 @@ export class AuthService {
     }
 
     const senhaHash = await bcrypt.hash(dto.senha, 10);
-    const papelSugerido = (
-      (invite.papel_sugerido as string) ?? UserRole.ALUNO
-    ).toUpperCase() as UserRole;
+    const papelSugerido = this.normalizeRole(
+      (invite.papel_sugerido as string) ?? UserRole.ALUNO,
+    );
     const novoUsuario =
       await this.authRepository.createUserWithRoleAndMatricula({
         email: dto.email,
@@ -191,6 +199,7 @@ export class AuthService {
       sub: novoUsuario.usuario_id,
       email: dto.email,
       role: papelSugerido,
+      roles: [papelSugerido],
       academiaId: invite.academia_id,
     };
 
@@ -202,6 +211,7 @@ export class AuthService {
         nome: dto.nomeCompleto ?? dto.nome ?? dto.email,
         email: payload.email,
         role: payload.role,
+        roles: payload.roles,
         academiaId: payload.academiaId,
       },
     };
@@ -212,6 +222,7 @@ export class AuthService {
       sub: 'mock-user-id',
       email: 'user@example.com',
       role: UserRole.ALUNO,
+      roles: [UserRole.ALUNO],
       academiaId: 'mock-academia-id',
     };
     return {
@@ -222,6 +233,7 @@ export class AuthService {
         nome: 'Mock User',
         email: payload.email,
         role: payload.role,
+        roles: payload.roles,
         academiaId: payload.academiaId,
       },
     };
@@ -255,8 +267,8 @@ export class AuthService {
 
     let primary = rows[0];
     for (const current of rows) {
-      const currentRole = (current.papel as string)?.toUpperCase() as UserRole;
-      const primaryRole = (primary.papel as string)?.toUpperCase() as UserRole;
+      const currentRole = this.normalizeRole(current.papel);
+      const primaryRole = this.normalizeRole(primary.papel);
       const currentPriority = priority[currentRole] ?? Number.MAX_SAFE_INTEGER;
       const primaryPriority = priority[primaryRole] ?? Number.MAX_SAFE_INTEGER;
       if (currentPriority < primaryPriority) {
@@ -266,7 +278,51 @@ export class AuthService {
 
     return {
       ...primary,
-      papel: ((primary.papel as string) ?? UserRole.ALUNO).toUpperCase() as UserRole,
+      papel: this.normalizeRole(primary.papel),
     } as T;
+  }
+
+  private getRolesForAcademia<
+    T extends { papel: UserRole | string; academia_id: string },
+  >(rows: T[], academiaId: string): UserRole[] {
+    const roles = rows
+      .filter((row) => row.academia_id === academiaId)
+      .map((row) => this.normalizeRole(row.papel));
+
+    const unique = Array.from(new Set(roles));
+    if (unique.length > 0) {
+      return unique;
+    }
+
+    if (rows.length > 0) {
+      return [this.normalizeRole(rows[0].papel)];
+    }
+
+    return [UserRole.ALUNO];
+  }
+
+  private getPrimaryRole(roles: UserRole[]): UserRole {
+    const priority: Record<UserRole, number> = {
+      [UserRole.TI]: 1,
+      [UserRole.ADMIN]: 2,
+      [UserRole.PROFESSOR]: 3,
+      [UserRole.INSTRUTOR]: 4,
+      [UserRole.ALUNO]: 5,
+    };
+
+    let primary = roles[0] ?? UserRole.ALUNO;
+    for (const role of roles) {
+      const currentPriority = priority[role] ?? Number.MAX_SAFE_INTEGER;
+      const primaryPriority = priority[primary] ?? Number.MAX_SAFE_INTEGER;
+      if (currentPriority < primaryPriority) {
+        primary = role;
+      }
+    }
+
+    return primary;
+  }
+
+  private normalizeRole(role: string | UserRole | null | undefined): UserRole {
+    return ((role as string) ?? UserRole.ALUNO).toUpperCase() as UserRole;
   }
 }

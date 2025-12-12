@@ -33,7 +33,13 @@ export class DashboardController {
   @ApiOkResponse({ type: AlunoDashboardDto })
   async getAlunoDashboard(
     @CurrentUser()
-    user: { id: string; email: string; role: UserRole; academiaId: string },
+    user: {
+      id: string;
+      email: string;
+      role: UserRole;
+      roles: UserRole[];
+      academiaId: string;
+    },
   ): Promise<AlunoDashboardDto> {
     return this.dashboardService.getAlunoDashboard(user);
   }
@@ -44,7 +50,13 @@ export class DashboardController {
   @ApiOkResponse({ type: StaffDashboardDto })
   async getStaffDashboard(
     @CurrentUser()
-    user: { id: string; email: string; role: UserRole; academiaId: string },
+    user: {
+      id: string;
+      email: string;
+      role: UserRole;
+      roles: UserRole[];
+      academiaId: string;
+    },
   ): Promise<StaffDashboardDto> {
     return this.dashboardService.getStaffDashboard(user);
   }
