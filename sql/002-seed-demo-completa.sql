@@ -185,6 +185,28 @@ where a.codigo_convite = 'BJJ-SEED1'
       and t.nome = 'Adulto Gi Noite'
   );
 
+-- 8b) TURMA NO-GI MANHA
+insert into turmas (academia_id, tipo_treino_id, nome, dias_semana, horario_padrao, instrutor_padrao_id)
+select
+  a.id as academia_id,
+  tt.id as tipo_treino_id,
+  'No-Gi Manha' as nome,
+  array[2,4] as dias_semana,      -- Terca (2) e Quinta (4)
+  time '07:30' as horario_padrao,
+  professor.id as instrutor_padrao_id
+from academias a
+join tipos_treino tt
+  on tt.academia_id = a.id
+ and tt.nome = 'No-Gi Adulto'
+left join usuarios professor
+  on professor.email = 'professor.seed@example.com'
+where a.codigo_convite = 'BJJ-SEED1'
+  and not exists (
+    select 1 from turmas t
+    where t.academia_id = a.id
+      and t.nome = 'No-Gi Manha'
+  );
+
 -- ============================
 -- 9) AULAS (3 meses, seg/qua à noite)
 -- ============================
@@ -235,6 +257,31 @@ where a.codigo_convite = 'BJJ-SEED1'
     select 1 from aulas au
     where au.turma_id = t.id
       and au.data_inicio::date = h.dia::date
+  );
+
+-- Aulas futuras (proximos 21 dias) para todas as turmas ativas da academia seed
+with janela as (
+  select
+    (date_trunc('day', now() at time zone 'America/Sao_Paulo'))::date as inicio,
+    (date_trunc('day', now() at time zone 'America/Sao_Paulo') + interval '21 day')::date as fim
+)
+insert into aulas (academia_id, turma_id, data_inicio, data_fim, status)
+select
+  a.id as academia_id,
+  t.id as turma_id,
+  (g.dia + t.horario_padrao) at time zone 'America/Sao_Paulo' as data_inicio,
+  ((g.dia + t.horario_padrao) at time zone 'America/Sao_Paulo') + interval '90 minutes' as data_fim,
+  'AGENDADA' as status
+from turmas t
+join academias a on a.id = t.academia_id
+cross join janela j
+cross join generate_series(j.inicio, j.fim, interval '1 day') as g(dia)
+where a.codigo_convite = 'BJJ-SEED1'
+  and extract(dow from g.dia) = any(t.dias_semana)
+  and not exists (
+    select 1 from aulas au
+    where au.turma_id = t.id
+      and date(au.data_inicio) = g.dia
   );
 
 -- Presenca PENDENTE garantida na aula de hoje para teste rapido (aluno seed)

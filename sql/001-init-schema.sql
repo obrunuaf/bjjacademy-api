@@ -103,7 +103,7 @@ create table if not exists aulas (
   turma_id          uuid not null references turmas (id),
   data_inicio       timestamptz not null,
   data_fim          timestamptz not null,
-  status            varchar(20) not null default 'AGENDADA', -- AGENDADA / EM_ANDAMENTO / ENCERRADA / CANCELADA
+  status            varchar(20) not null default 'AGENDADA', -- AGENDADA / ENCERRADA / CANCELADA
   qr_token          varchar(255),
   qr_expires_at     timestamptz,
   criado_em         timestamptz not null default now()

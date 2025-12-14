@@ -85,6 +85,7 @@ export class CheckinService {
           and a.data_inicio >= $2
           and a.data_inicio < $3
           and a.status <> 'CANCELADA'
+          and a.deleted_at is null
           and t.deleted_at is null
         order by a.data_inicio asc;
       `,
@@ -118,8 +119,14 @@ export class CheckinService {
     }
 
     const aula = await this.databaseService.queryOne<AulaRow>(
-      `select id, academia_id, status, qr_token, qr_expires_at from aulas where id = $1 limit 1;`,
-      [dto.aulaId],
+      `
+        select id, academia_id, status, qr_token, qr_expires_at, deleted_at
+        from aulas
+        where id = $1
+          and academia_id = $2
+        limit 1;
+      `,
+      [dto.aulaId, currentUser.academiaId],
     );
 
     if (!aula) {

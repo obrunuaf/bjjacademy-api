@@ -10,6 +10,12 @@ export class AulaResponseDto {
   @ApiProperty()
   turmaNome: string;
 
+  @ApiProperty({ nullable: true })
+  turmaHorarioPadrao: string | null;
+
+  @ApiProperty({ type: [Number], nullable: true })
+  turmaDiasSemana: number[] | null;
+
   @ApiProperty()
   dataInicio: string;
 
@@ -23,7 +29,16 @@ export class AulaResponseDto {
   tipoTreino: string;
 
   @ApiProperty({ nullable: true })
+  instrutorPadraoId: string | null;
+
+  @ApiProperty({ nullable: true })
   instrutorNome: string | null;
+
+  @ApiProperty({ nullable: true })
+  qrToken: string | null;
+
+  @ApiProperty({ nullable: true })
+  qrExpiresAt: string | null;
 
   @ApiProperty({ nullable: true })
   deletedAt: string | null;

@@ -318,19 +318,13 @@ Notas:
   }
   ```
 
-### 3.4 Turmas e Aulas (listagens) — real
+### 3.4 Turmas e Aulas (real)
 
 #### 3.4.1 Turmas (CRUD com soft-delete)
 - **Roles leitura:** `ALUNO` e staff (mesma academia). **Escrita:** `INSTRUTOR`, `PROFESSOR`, `ADMIN`, `TI`.
-- **Soft-delete:** `deleted_at/deleted_by`; listagens ignoram deletadas por default. `includeDeleted=true` so para staff.
-- **Endpoints:**
-  - `GET /turmas` (queries `includeDeleted` ou `onlyDeleted` opcionais)
-  - `GET /turmas/:id`
-  - `POST /turmas`
-  - `PATCH /turmas/:id`
-  - `DELETE /turmas/:id` (marca `deleted_at/deleted_by`)
-  - `POST /turmas/:id/restore` (reativa; 409 se ja houver turma ativa com mesmo nome)
-- **Campos (response):** `id`, `nome`, `tipoTreino`, `diasSemana` (0=Dom ... 6=Sab), `horarioPadrao` (HH:MM), `instrutorPadraoId`, `instrutorPadraoNome`, `deletedAt`.
+- **Soft-delete:** `deleted_at/deleted_by`; listagens ignoram deletadas por default. `includeDeleted`/`onlyDeleted` so para staff. `DELETE` retorna `409` se houver aulas futuras nao deletadas (cancele/dele-as antes).
+- **Campos (response):** `id`, `nome`, `tipoTreino`, `tipoTreinoCor`, `diasSemana` (0=Dom ... 6=Sab), `horarioPadrao` (HH:MM), `instrutorPadraoId`, `instrutorPadraoNome`, `deletedAt`.
+- **Endpoints:** `GET /turmas`, `GET /turmas/:id`, `POST /turmas`, `PATCH /turmas/:id`, `DELETE /turmas/:id` (soft), `POST /turmas/:id/restore` (reativa; 409 se ja houver turma ativa com mesmo nome).
 - **Curls (staff):**
   ```bash
   ACCESS_TOKEN="<token-professor>"
@@ -338,48 +332,60 @@ Notas:
   curl -X POST http://localhost:3000/v1/turmas \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
-    -d '{"nome":"No-Gi Manha","tipoTreinoId":"<tipo-id>","diasSemana":[2,4],"horarioPadrao":"08:00"}'
-  # listar
+    -d '{"nome":"No-Gi Manha","tipoTreinoId":"<tipo-id>","diasSemana":[2,4],"horarioPadrao":"07:30"}'
+  # listar (ignora deletadas)
   curl http://localhost:3000/v1/turmas -H "Authorization: Bearer $ACCESS_TOKEN"
+  # detalhe
+  curl http://localhost:3000/v1/turmas/<turmaId> -H "Authorization: Bearer $ACCESS_TOKEN"
   # editar
   curl -X PATCH http://localhost:3000/v1/turmas/<turmaId> \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"horarioPadrao":"09:00"}'
-  # deletar (soft)
+  # deletar (soft; bloqueia se houver aulas futuras ativas)
   curl -X DELETE http://localhost:3000/v1/turmas/<turmaId> \
-    -H "Authorization: Bearer $ACCESS_TOKEN"
-  # listar deletadas (staff)
-  curl "http://localhost:3000/v1/turmas?includeDeleted=true" \
-    -H "Authorization: Bearer $ACCESS_TOKEN"
-  # listar apenas deletadas
-  curl "http://localhost:3000/v1/turmas?onlyDeleted=true" \
-    -H "Authorization: Bearer $ACCESS_TOKEN"
-  # restaurar turma (reativa)
-  curl -X POST http://localhost:3000/v1/turmas/<turmaId>/restore \
     -H "Authorization: Bearer $ACCESS_TOKEN"
   ```
 
-#### 3.4.2 GET `/aulas/hoje`
-- **Roles:** `INSTRUTOR`, `PROFESSOR`, `ADMIN`, `TI`.
-- **Multi-tenant + timezone:** filtra `aulas` pelo `academiaId` e pela janela [startUtc, endUtc) calculada com `APP_TIMEZONE` (padrao `America/Sao_Paulo`), ignorando `CANCELADA`.
-- **Retorna:** `id`, `dataInicio`, `dataFim`, `status`, `turmaId`, `turmaNome`, `turmaHorarioPadrao`, `tipoTreino`, `instrutorNome`.
-- **Observacao:** se nao ha aulas no dia (ex.: seeds acabam em 2025-11), retorna `[]`.
-- **Exemplo de estrutura (aula da seed):**
-  ```json
-  [
-    {
-      "id": "aula-uuid",
-      "dataInicio": "2025-09-01T19:00:00.000Z",
-      "dataFim": "2025-09-01T20:30:00.000Z",
-      "status": "ENCERRADA",
-      "turmaId": "turma-uuid",
-      "turmaNome": "Adulto Gi Noite",
-      "turmaHorarioPadrao": "19:00",
-      "tipoTreino": "Gi Adulto",
-      "instrutorNome": "Instrutor Seed"
-    }
-  ]
+#### 3.4.2 Aulas (CRUD, listagens e lote)
+- **Status permitidos:** `AGENDADA`, `ENCERRADA`, `CANCELADA`. `GET /aulas` ignora `deleted_at` por default (includeDeleted/onlyDeleted so para staff).
+- **Listagem (`GET /aulas`):** filtros opcionais `turmaId`, `from`, `to`, `status`. Sem filtros de data aplica janela de **hoje** no `APP_TIMEZONE` ([startUtc, endUtc)). Retorna turma (diasSemana, horarioPadrao, instrutorPadrao*), tipoTreino e, para staff, dados do QR se existirem.
+- **Detalhe (`GET /aulas/:id`):** mesma estrutura da lista; qrToken/qrExpiresAt so aparecem para staff. Nao retorna aulas deletadas/turmas deletadas.
+- **Criacao (`POST /aulas`):** valida turma da academia e nao deletada, `dataFim > dataInicio`, sem duplicidade `turma+dataInicio` (`409`). Status default `AGENDADA`.
+- **Atualizacao (`PATCH /aulas/:id`):** permite alterar datas/status; bloqueia duplicidade de horario (`409`) e valida ordem das datas.
+- **Delete (`DELETE /aulas/:id`):** soft-delete (`deleted_at`), limpa QR token.
+- **Lote (`POST /aulas/lote`):** gera aulas `AGENDADA` entre `fromDate/toDate` (YYYY-MM-DD). Usa `diasSemana`/`horaInicio`/`duracaoMinutos` do corpo ou, se ausentes, da turma (`dias_semana`, `horario_padrao`, `90min`). Ignora duplicadas (`deleted_at is null`); resposta `{ criadas, ignoradas, conflitos[] }`.
+- **Aulas de hoje (`GET /aulas/hoje`):** staff; usa janela de hoje (`APP_TIMEZONE`), ignora `CANCELADA` e `deleted_at` (aula/turma).
+- **Curls (staff):**
+  ```bash
+  ACCESS_TOKEN="<token-professor>"
+  # listar aulas de hoje (default)
+  curl http://localhost:3000/v1/aulas \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+  # listar por intervalo (inclusive) com status
+  curl "http://localhost:3000/v1/aulas?from=2025-01-01&to=2025-01-07&status=AGENDADA" \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+  # detalhe
+  curl http://localhost:3000/v1/aulas/<aulaId> \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+  # criar aula avulsa
+  curl -X POST http://localhost:3000/v1/aulas \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"turmaId":"<turmaId>","dataInicio":"2025-01-10T19:00:00.000Z","dataFim":"2025-01-10T20:30:00.000Z","status":"AGENDADA"}'
+  # atualizar status
+  curl -X PATCH http://localhost:3000/v1/aulas/<aulaId> \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"status":"CANCELADA"}'
+  # deletar (soft)
+  curl -X DELETE http://localhost:3000/v1/aulas/<aulaId> \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+  # gerar em lote (usa diasSemana/horarioPadrao da turma se nao enviados)
+  curl -X POST http://localhost:3000/v1/aulas/lote \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"turmaId":"<turmaId>","fromDate":"2025-01-01","toDate":"2025-01-15","diasSemana":[1,3],"horaInicio":"19:00","duracaoMinutos":90}'
   ```
 
 ### 3.5 Check-in & Presencas (real)

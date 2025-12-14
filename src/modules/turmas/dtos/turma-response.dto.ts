@@ -10,6 +10,9 @@ export class TurmaResponseDto {
   @ApiProperty()
   tipoTreino: string;
 
+  @ApiProperty({ nullable: true, description: 'Cor do tipo de treino (#RRGGBB)' })
+  tipoTreinoCor: string | null;
+
   @ApiProperty({
     type: [Number],
     description: 'Dias da semana (0=Domingo ... 6=Sabado)',

@@ -181,6 +181,8 @@ export class HomeService {
         where p.aluno_id = $1
           and p.academia_id = $2
           and a.academia_id = $2
+          and a.deleted_at is null
+          and t.deleted_at is null
         order by a.data_inicio desc
         limit 10;
       `,

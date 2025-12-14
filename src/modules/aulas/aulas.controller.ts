@@ -26,6 +26,8 @@ import { AulaQrCodeDto } from './dtos/aula-qrcode.dto';
 import { AulaDto } from './dtos/aula.dto';
 import { AulaResponseDto } from './dtos/aula-response.dto';
 import { CreateAulaDto } from './dtos/create-aula.dto';
+import { CreateAulasLoteDto } from './dtos/create-aulas-lote.dto';
+import { CreateAulasLoteResponseDto } from './dtos/create-aulas-lote-response.dto';
 import { ListAulasQueryDto } from './dtos/list-aulas-query.dto';
 import { UpdateAulaDto } from './dtos/update-aula.dto';
 
@@ -51,7 +53,7 @@ export class AulasController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: ['AGENDADA', 'ENCERRADA', 'CANCELADA', 'EM_ANDAMENTO'],
+    enum: ['AGENDADA', 'ENCERRADA', 'CANCELADA'],
   })
   @ApiQuery({
     name: 'includeDeleted',
@@ -114,6 +116,17 @@ export class AulasController {
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<AulaResponseDto> {
     return this.aulasService.criar(dto, user);
+  }
+
+  @Post('lote')
+  @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
+  @ApiOperation({ summary: 'Gera aulas em lote' })
+  @ApiOkResponse({ type: CreateAulasLoteResponseDto })
+  async criarEmLote(
+    @Body() dto: CreateAulasLoteDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<CreateAulasLoteResponseDto> {
+    return this.aulasService.criarEmLote(dto, user);
   }
 
   @Patch(':id')

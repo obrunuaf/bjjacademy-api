@@ -19,10 +19,10 @@ export class ListAulasQueryDto {
   to?: string;
 
   @ApiPropertyOptional({
-    enum: ['AGENDADA', 'EM_ANDAMENTO', 'ENCERRADA', 'CANCELADA'],
+    enum: ['AGENDADA', 'ENCERRADA', 'CANCELADA'],
   })
   @IsOptional()
-  @IsIn(['AGENDADA', 'EM_ANDAMENTO', 'ENCERRADA', 'CANCELADA'])
+  @IsIn(['AGENDADA', 'ENCERRADA', 'CANCELADA'])
   status?: string;
 
   @ApiPropertyOptional({

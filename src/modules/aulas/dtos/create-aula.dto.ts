@@ -20,10 +20,10 @@ export class CreateAulaDto {
   dataFim: string;
 
   @ApiPropertyOptional({
-    enum: ['AGENDADA', 'EM_ANDAMENTO', 'ENCERRADA', 'CANCELADA'],
+    enum: ['AGENDADA', 'ENCERRADA', 'CANCELADA'],
     default: 'AGENDADA',
   })
   @IsOptional()
-  @IsIn(['AGENDADA', 'EM_ANDAMENTO', 'ENCERRADA', 'CANCELADA'])
+  @IsIn(['AGENDADA', 'ENCERRADA', 'CANCELADA'])
   status?: string;
 }

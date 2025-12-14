@@ -10,6 +10,9 @@ export class TurmaDto {
   @ApiProperty()
   tipoTreino: string;
 
+  @ApiProperty({ nullable: true })
+  tipoTreinoCor: string | null;
+
   @ApiProperty({
     type: [Number],
     description: 'Dias da semana (0=Domingo ... 6=Sabado)',

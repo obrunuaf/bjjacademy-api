@@ -24,6 +24,7 @@ type TurmaRow = {
   dias_semana: number[];
   horario_padrao: string;
   tipo_treino: string;
+  tipo_treino_cor: string | null;
   instrutor_id: string | null;
   instrutor_nome: string | null;
   deleted_at: string | null;
@@ -52,6 +53,7 @@ export class TurmasService {
           t.dias_semana,
           to_char(t.horario_padrao, 'HH24:MI') as horario_padrao,
           tt.nome as tipo_treino,
+          tt.cor_identificacao as tipo_treino_cor,
           instrutor.id as instrutor_id,
           instrutor.nome_completo as instrutor_nome,
           t.deleted_at
@@ -77,6 +79,7 @@ export class TurmasService {
       horarioPadrao: turma.horario_padrao,
       instrutorPadraoId: turma.instrutor_id ?? null,
       instrutorPadraoNome: turma.instrutor_nome ?? null,
+      tipoTreinoCor: turma.tipo_treino_cor ?? null,
       deletedAt: turma.deleted_at ? new Date(turma.deleted_at).toISOString() : null,
     }));
   }
@@ -89,8 +92,8 @@ export class TurmasService {
       throw new NotFoundException('Turma nao encontrada');
     }
 
-    if (turma.academia_id !== currentUser.academiaId) {
-      throw new NotFoundException('Turma nao encontrada na academia');
+    if (turma.deleted_at) {
+      throw new NotFoundException('Turma nao encontrada');
     }
 
     return this.mapRow(turma);
@@ -121,6 +124,7 @@ export class TurmasService {
           tipo_treino_id,
           instrutor_padrao_id,
           academia_id,
+          null::varchar as tipo_treino_cor,
           null::timestamptz as deleted_at;
       `,
       [
@@ -150,6 +154,7 @@ export class TurmasService {
       id: turma.id,
       nome: turma.nome,
       tipoTreino: tipoTreino?.nome ?? '',
+      tipoTreinoCor: tipoTreino?.cor_identificacao ?? null,
       diasSemana: dto.diasSemana.map(Number),
       horarioPadrao: dto.horarioPadrao,
       instrutorPadraoId: dto.instrutorPadraoId ?? null,
@@ -212,6 +217,7 @@ export class TurmasService {
            to_char(horario_padrao, 'HH24:MI') as horario_padrao,
            instrutor_padrao_id as instrutor_id,
            (select nome from tipos_treino where id = turmas.tipo_treino_id) as tipo_treino,
+           (select cor_identificacao from tipos_treino where id = turmas.tipo_treino_id) as tipo_treino_cor,
            (select nome_completo from usuarios where id = turmas.instrutor_padrao_id) as instrutor_nome,
            deleted_at,
            academia_id;
@@ -237,6 +243,25 @@ export class TurmasService {
     });
     if (!turma) {
       throw new NotFoundException('Turma nao encontrada');
+    }
+
+    const aulaFutura = await this.databaseService.queryOne<{ id: string }>(
+      `
+        select id
+        from aulas
+        where turma_id = $1
+          and academia_id = $2
+          and deleted_at is null
+          and data_inicio >= now()
+        limit 1;
+      `,
+      [id, currentUser.academiaId],
+    );
+
+    if (aulaFutura) {
+      throw new ConflictException(
+        'Turma possui aulas futuras. Cancele ou delete as aulas antes de remover a turma.',
+      );
     }
 
     await this.databaseService.query(
@@ -316,6 +341,7 @@ export class TurmasService {
       id: row.id,
       nome: row.nome,
       tipoTreino: row.tipo_treino,
+      tipoTreinoCor: row.tipo_treino_cor ?? null,
       diasSemana: Array.isArray(row.dias_semana)
         ? row.dias_semana.map(Number)
         : [],
@@ -341,6 +367,7 @@ export class TurmasService {
           t.dias_semana,
           to_char(t.horario_padrao, 'HH24:MI') as horario_padrao,
           tt.nome as tipo_treino,
+          tt.cor_identificacao as tipo_treino_cor,
           t.tipo_treino_id,
           t.instrutor_padrao_id as instrutor_id,
           instrutor.nome_completo as instrutor_nome,
@@ -379,13 +406,16 @@ export class TurmasService {
           from usuarios_papeis
           where usuario_id = $1
             and academia_id = $2
+            and papel in ('INSTRUTOR', 'PROFESSOR', 'ADMIN', 'TI')
           limit 1;
         `,
         [dto.instrutorPadraoId, academiaId],
       );
 
       if (!instrutor) {
-        throw new NotFoundException('Instrutor nao encontrado na academia');
+        throw new NotFoundException(
+          'Instrutor nao encontrado na academia ou sem papel de staff',
+        );
       }
     }
   }
@@ -393,10 +423,10 @@ export class TurmasService {
   private async buscarTipoTreino(
     tipoTreinoId: string,
     academiaId: string,
-  ): Promise<{ id: string; nome: string } | null> {
+  ): Promise<{ id: string; nome: string; cor_identificacao: string | null } | null> {
     return this.databaseService.queryOne(
       `
-        select id, nome
+        select id, nome, cor_identificacao
         from tipos_treino
         where id = $1
           and academia_id = $2

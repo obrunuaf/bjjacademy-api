@@ -12,6 +12,8 @@ import { AulaQrCodeDto } from './dtos/aula-qrcode.dto';
 import { AulaDto } from './dtos/aula.dto';
 import { AulaResponseDto } from './dtos/aula-response.dto';
 import { CreateAulaDto } from './dtos/create-aula.dto';
+import { CreateAulasLoteDto } from './dtos/create-aulas-lote.dto';
+import { CreateAulasLoteResponseDto } from './dtos/create-aulas-lote-response.dto';
 import { ListAulasQueryDto } from './dtos/list-aulas-query.dto';
 import { UpdateAulaDto } from './dtos/update-aula.dto';
 
@@ -31,6 +33,11 @@ type AulaRow = {
   turma_nome: string;
   tipo_treino: string;
   instrutor_nome: string | null;
+  instrutor_id?: string | null;
+  turma_horario_padrao?: string | null;
+  turma_dias_semana?: number[] | null;
+  qr_token?: string | null;
+  qr_expires_at?: string | null;
   deleted_at: string | null;
   academia_id: string;
 };
@@ -80,7 +87,7 @@ export class AulasService {
       status: aula.status,
       turmaId: aula.turma_id,
       turmaNome: aula.turma_nome,
-      turmaHorarioPadrao: (aula as any).turma_horario_padrao,
+      turmaHorarioPadrao: aula.turma_horario_padrao ?? '',
       tipoTreino: aula.tipo_treino,
       instrutorNome: aula.instrutor_nome ?? null,
     }));
@@ -126,7 +133,7 @@ export class AulasService {
     query: ListAulasQueryDto,
     currentUser: CurrentUser,
   ): Promise<AulaResponseDto[]> {
-    const { where, params } = this.buildListQuery(query, currentUser);
+    const { where, params } = await this.buildListQuery(query, currentUser);
 
     const aulas = await this.databaseService.query<AulaRow>(
       `
@@ -139,6 +146,9 @@ export class AulasService {
           t.nome as turma_nome,
           tt.nome as tipo_treino,
           instrutor.nome_completo as instrutor_nome,
+          t.instrutor_padrao_id as instrutor_id,
+          to_char(t.horario_padrao, 'HH24:MI') as turma_horario_padrao,
+          t.dias_semana as turma_dias_semana,
           a.deleted_at,
           a.academia_id
         from aulas a
@@ -146,7 +156,7 @@ export class AulasService {
         join tipos_treino tt on tt.id = t.tipo_treino_id
         left join usuarios instrutor on instrutor.id = t.instrutor_padrao_id
         where ${where.join(' and ')}
-        order by a.data_inicio asc;
+          order by a.data_inicio asc;
       `,
       params,
     );
@@ -159,18 +169,19 @@ export class AulasService {
     currentUser: CurrentUser,
     includeDeleted?: boolean,
   ): Promise<AulaResponseDto> {
+    const allowDeleted = includeDeleted && this.userIsStaff(currentUser);
     const aula = await this.buscarAula(id, currentUser.academiaId, {
-      includeDeleted,
+      includeDeleted: allowDeleted,
     });
     if (!aula) {
       throw new NotFoundException('Aula nao encontrada');
     }
 
-    if (!includeDeleted && aula.deleted_at) {
+    if (!allowDeleted && aula.deleted_at) {
       throw new NotFoundException('Aula nao encontrada');
     }
 
-    return this.mapRow(aula);
+    return this.mapRow(aula, { includeQr: this.userIsStaff(currentUser) });
   }
 
   async criar(
@@ -200,6 +211,11 @@ export class AulasService {
           (select nome from turmas where id = $2) as turma_nome,
           (select nome from tipos_treino where id = (select tipo_treino_id from turmas where id = $2)) as tipo_treino,
           (select u.nome_completo from usuarios u join turmas t on t.instrutor_padrao_id = u.id where t.id = $2) as instrutor_nome,
+          (select instrutor_padrao_id from turmas where id = $2) as instrutor_id,
+          (select to_char(horario_padrao, 'HH24:MI') from turmas where id = $2) as turma_horario_padrao,
+          (select dias_semana from turmas where id = $2) as turma_dias_semana,
+          qr_token,
+          qr_expires_at,
           deleted_at,
           academia_id;
       `,
@@ -217,6 +233,142 @@ export class AulasService {
     }
 
     return this.mapRow(created);
+  }
+
+  async criarEmLote(
+    dto: CreateAulasLoteDto,
+    currentUser: CurrentUser,
+  ): Promise<CreateAulasLoteResponseDto> {
+    this.ensureStaff(currentUser);
+
+    if (new Date(dto.toDate) < new Date(dto.fromDate)) {
+      throw new BadRequestException('toDate deve ser maior ou igual a fromDate');
+    }
+
+    const turma = await this.databaseService.queryOne<{
+      id: string;
+      dias_semana: number[];
+      horario_padrao: string;
+      deleted_at: string | null;
+    }>(
+      `
+        select
+          id,
+          dias_semana,
+          to_char(horario_padrao, 'HH24:MI') as horario_padrao,
+          deleted_at
+        from turmas
+        where id = $1
+          and academia_id = $2
+        limit 1;
+      `,
+      [dto.turmaId, currentUser.academiaId],
+    );
+
+    if (!turma) {
+      throw new NotFoundException('Turma nao encontrada');
+    }
+
+    if (turma.deleted_at) {
+      throw new ConflictException('Turma deletada nao pode receber aulas');
+    }
+
+    const diasSemana = (dto.diasSemana ?? turma.dias_semana ?? []).map(Number);
+    if (!diasSemana.length) {
+      throw new BadRequestException(
+        'diasSemana obrigatorio (informe no corpo ou configure na turma)',
+      );
+    }
+
+    const horaInicio = dto.horaInicio ?? turma.horario_padrao;
+    const duracaoMinutos = dto.duracaoMinutos ?? 90;
+    const tz = this.databaseService.getAppTimezone();
+
+    const candidatos = await this.databaseService.query<{
+      data_inicio: string;
+      data_fim: string;
+      ja_existe: boolean;
+    }>(
+      `
+        with params as (
+          select
+            $1::uuid as turma_id,
+            $2::uuid as academia_id,
+            $3::date as from_date,
+            $4::date as to_date,
+            $5::int[] as dias_semana,
+            $6::time as hora_inicio,
+            $7::int as duracao_minutos,
+            $8::text as tz
+        ),
+        dias as (
+          select generate_series(from_date, to_date, interval '1 day') as dia
+          from params
+        ),
+        candidatas as (
+          select
+            (dia + hora_inicio)::timestamp at time zone (select tz from params) as data_inicio,
+            ((dia + hora_inicio)::timestamp at time zone (select tz from params))
+              + make_interval(mins := (select duracao_minutos from params)) as data_fim
+          from dias, params
+          where extract(dow from dia) = any(params.dias_semana)
+        )
+        select
+          c.data_inicio,
+          c.data_fim,
+          exists (
+            select 1
+            from aulas a
+            join params p
+              on p.turma_id = a.turma_id
+             and p.academia_id = a.academia_id
+            where a.data_inicio = c.data_inicio
+              and a.deleted_at is null
+          ) as ja_existe
+        from candidatas c
+        order by c.data_inicio;
+      `,
+      [
+        dto.turmaId,
+        currentUser.academiaId,
+        dto.fromDate,
+        dto.toDate,
+        diasSemana,
+        horaInicio,
+        duracaoMinutos,
+        tz,
+      ],
+    );
+
+    const paraCriar = candidatos.filter((c) => !c.ja_existe);
+    const datasInicio = paraCriar.map((c) => c.data_inicio);
+    const datasFim = paraCriar.map((c) => c.data_fim);
+
+    let criadas = 0;
+    if (datasInicio.length) {
+      const inseridas = await this.databaseService.query<{ data_inicio: string }>(
+        `
+          insert into aulas (academia_id, turma_id, data_inicio, data_fim, status)
+          select $1, $2, unnest($3::timestamptz[]), unnest($4::timestamptz[]), 'AGENDADA'
+          returning data_inicio;
+        `,
+        [currentUser.academiaId, dto.turmaId, datasInicio, datasFim],
+      );
+      criadas = inseridas.length;
+    }
+
+    const conflitos = candidatos
+      .filter((c) => c.ja_existe)
+      .map((c) => ({
+        dataInicio: new Date(c.data_inicio).toISOString(),
+        motivo: 'Ja existe aula para a turma neste horario',
+      }));
+
+    return {
+      criadas,
+      ignoradas: conflitos.length,
+      conflitos,
+    };
   }
 
   async atualizar(
@@ -237,6 +389,15 @@ export class AulasService {
       this.ensureDateOrder(
         dto.dataInicio ?? aula.data_inicio,
         dto.dataFim ?? aula.data_fim,
+      );
+    }
+
+    if (dto.dataInicio && dto.dataInicio !== aula.data_inicio) {
+      await this.ensureAulaUnica(
+        aula.turma_id,
+        dto.dataInicio,
+        currentUser.academiaId,
+        aula.id,
       );
     }
 
@@ -275,6 +436,11 @@ export class AulasService {
            (select nome from turmas where id = turma_id) as turma_nome,
            (select nome from tipos_treino where id = (select tipo_treino_id from turmas where id = turma_id)) as tipo_treino,
            (select u.nome_completo from usuarios u join turmas t on t.instrutor_padrao_id = u.id where t.id = turma_id) as instrutor_nome,
+           (select instrutor_padrao_id from turmas where id = turma_id) as instrutor_id,
+           (select to_char(horario_padrao, 'HH24:MI') from turmas where id = turma_id) as turma_horario_padrao,
+           (select dias_semana from turmas where id = turma_id) as turma_dias_semana,
+           qr_token,
+           qr_expires_at,
            deleted_at,
            academia_id;
       `,
@@ -300,7 +466,9 @@ export class AulasService {
     await this.databaseService.query(
       `
         update aulas
-           set deleted_at = now()
+           set deleted_at = now(),
+               qr_token = null,
+               qr_expires_at = null
          where id = $1
            and academia_id = $2;
       `,
@@ -372,6 +540,11 @@ export class AulasService {
            (select nome from turmas where id = turma_id) as turma_nome,
            (select nome from tipos_treino where id = (select tipo_treino_id from turmas where id = turma_id)) as tipo_treino,
            (select u.nome_completo from usuarios u join turmas t on t.instrutor_padrao_id = u.id where t.id = turma_id) as instrutor_nome,
+           (select instrutor_padrao_id from turmas where id = turma_id) as instrutor_id,
+           (select to_char(horario_padrao, 'HH24:MI') from turmas where id = turma_id) as turma_horario_padrao,
+           (select dias_semana from turmas where id = turma_id) as turma_dias_semana,
+           qr_token,
+           qr_expires_at,
            deleted_at,
            academia_id;
       `,
@@ -386,6 +559,12 @@ export class AulasService {
   }
 
   private ensureStaff(user: CurrentUser) {
+    if (!this.userIsStaff(user)) {
+      throw new ForbiddenException('Apenas staff pode executar esta acao');
+    }
+  }
+
+  private userIsStaff(user: CurrentUser): boolean {
     const roles = (user.roles ?? (user.role ? [user.role] : [])).map((r) =>
       (r as string).toUpperCase(),
     );
@@ -395,15 +574,27 @@ export class AulasService {
       UserRole.ADMIN,
       UserRole.TI,
     ];
-    if (!roles.some((r) => allowed.includes(r as UserRole))) {
-      throw new ForbiddenException('Apenas staff pode executar esta acao');
-    }
+    return roles.some((r) => allowed.includes(r as UserRole));
   }
 
   private ensureDateOrder(dataInicio: string, dataFim: string) {
     if (new Date(dataFim) <= new Date(dataInicio)) {
       throw new BadRequestException('dataFim deve ser maior que dataInicio');
     }
+  }
+
+  private async normalizeDateParam(
+    value: string | undefined,
+    tz: string,
+    boundary: 'start' | 'end',
+  ): Promise<Date | undefined> {
+    if (!value) return undefined;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const { startUtc, endUtc } =
+        await this.databaseService.getDayBoundsUtc(value, tz);
+      return boundary === 'start' ? startUtc : endUtc;
+    }
+    return new Date(value);
   }
 
   private async validarTurma(turmaId: string, academiaId: string) {
@@ -431,6 +622,7 @@ export class AulasService {
     turmaId: string,
     dataInicio: string,
     academiaId: string,
+    ignoreAulaId?: string,
   ) {
     const exists = await this.databaseService.queryOne<{ id: string }>(
       `
@@ -440,9 +632,12 @@ export class AulasService {
           and academia_id = $2
           and data_inicio = $3
           and deleted_at is null
+          ${ignoreAulaId ? 'and id <> $4' : ''}
         limit 1;
       `,
-      [turmaId, academiaId, dataInicio],
+      ignoreAulaId
+        ? [turmaId, academiaId, dataInicio, ignoreAulaId]
+        : [turmaId, academiaId, dataInicio],
     );
 
     if (exists) {
@@ -452,16 +647,21 @@ export class AulasService {
     }
   }
 
-  private buildListQuery(
+  private async buildListQuery(
     query: ListAulasQueryDto,
     currentUser: CurrentUser,
-  ): { where: string[]; params: any[] } {
-    const where = ['a.academia_id = $1'];
+  ): Promise<{ where: string[]; params: any[] }> {
+    const where = ['a.academia_id = $1', 't.deleted_at is null'];
     const params: any[] = [currentUser.academiaId];
     let idx = 2;
 
     const onlyDeleted = !!query.onlyDeleted;
     const includeDeleted = !!query.includeDeleted;
+    const isStaff = this.userIsStaff(currentUser);
+
+    if ((onlyDeleted || includeDeleted) && !isStaff) {
+      throw new ForbiddenException('Apenas staff pode listar aulas deletadas');
+    }
 
     if (onlyDeleted) {
       where.push('a.deleted_at is not null');
@@ -481,26 +681,32 @@ export class AulasService {
       idx += 1;
     }
 
-    if (query.from) {
+    const tz = this.databaseService.getAppTimezone();
+    const fromValue = await this.normalizeDateParam(query.from, tz, 'start');
+    const toValue = await this.normalizeDateParam(query.to, tz, 'end');
+
+    if (fromValue && toValue && new Date(toValue) < new Date(fromValue)) {
+      throw new BadRequestException('to deve ser maior ou igual a from');
+    }
+
+    if (fromValue) {
       where.push(`a.data_inicio >= $${idx}`);
-      params.push(query.from);
+      params.push(fromValue);
       idx += 1;
     }
 
-    if (query.to) {
-      where.push(`a.data_inicio <= $${idx}`);
-      params.push(query.to);
+    if (toValue) {
+      where.push(`a.data_inicio < $${idx}`);
+      params.push(toValue);
       idx += 1;
     }
 
-    if (!query.from && !query.to) {
-      const now = Date.now();
-      const defaultFrom = new Date(now - 30 * 24 * 60 * 60 * 1000);
-      const defaultTo = new Date(now + 7 * 24 * 60 * 60 * 1000);
-      where.push(
-        `a.data_inicio between $${idx} and $${idx + 1}`,
-      );
-      params.push(defaultFrom.toISOString(), defaultTo.toISOString());
+    if (!fromValue && !toValue) {
+      const { startUtc, endUtc } =
+        await this.databaseService.getTodayBoundsUtc(tz);
+      where.push(`a.data_inicio >= $${idx}`);
+      where.push(`a.data_inicio < $${idx + 1}`);
+      params.push(startUtc, endUtc);
     }
 
     return { where, params };
@@ -522,6 +728,11 @@ export class AulasService {
           t.nome as turma_nome,
           tt.nome as tipo_treino,
           instrutor.nome_completo as instrutor_nome,
+          t.instrutor_padrao_id as instrutor_id,
+          to_char(t.horario_padrao, 'HH24:MI') as turma_horario_padrao,
+          t.dias_semana as turma_dias_semana,
+          a.qr_token,
+          a.qr_expires_at,
           a.deleted_at,
           a.academia_id
         from aulas a
@@ -530,6 +741,7 @@ export class AulasService {
         left join usuarios instrutor on instrutor.id = t.instrutor_padrao_id
         where a.id = $1
           and a.academia_id = $2
+          and t.deleted_at is null
           ${opts?.includeDeleted ? '' : 'and a.deleted_at is null'}
         limit 1;
       `,
@@ -545,16 +757,29 @@ export class AulasService {
     return 5;
   }
 
-  private mapRow(row: AulaRow): AulaResponseDto {
+  private mapRow(
+    row: AulaRow,
+    opts?: { includeQr?: boolean },
+  ): AulaResponseDto {
     return {
       id: row.id,
       turmaId: row.turma_id,
       turmaNome: row.turma_nome,
+      turmaHorarioPadrao: row.turma_horario_padrao ?? null,
+      turmaDiasSemana: Array.isArray(row.turma_dias_semana)
+        ? row.turma_dias_semana.map(Number)
+        : null,
       dataInicio: new Date(row.data_inicio).toISOString(),
       dataFim: new Date(row.data_fim).toISOString(),
       status: row.status,
       tipoTreino: row.tipo_treino,
+      instrutorPadraoId: row.instrutor_id ?? null,
       instrutorNome: row.instrutor_nome ?? null,
+      qrToken: opts?.includeQr ? row.qr_token ?? null : null,
+      qrExpiresAt:
+        opts?.includeQr && row.qr_expires_at
+          ? new Date(row.qr_expires_at).toISOString()
+          : null,
       deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : null,
     };
   }

@@ -112,6 +112,8 @@ export class DashboardService {
           where a.academia_id = $1
             and a.data_inicio > now()
             and a.status <> 'CANCELADA'
+            and a.deleted_at is null
+            and t.deleted_at is null
           order by a.data_inicio asc
           limit 1;
         `,
@@ -191,12 +193,15 @@ export class DashboardService {
       }>(
         `
           with aulas_hoje as (
-            select id
-            from aulas
-            where academia_id = $1
-              and data_inicio >= $2
-              and data_inicio < $3
-              and deleted_at is null
+            select a.id
+            from aulas a
+            join turmas t on t.id = a.turma_id
+            where a.academia_id = $1
+              and a.data_inicio >= $2
+              and a.data_inicio < $3
+              and a.deleted_at is null
+              and t.deleted_at is null
+              and a.status <> 'CANCELADA'
           ),
           presencas_hoje as (
             select p.status
