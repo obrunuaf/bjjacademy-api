@@ -352,14 +352,18 @@ Notas:
 - **Status permitidos:** `AGENDADA`, `ENCERRADA`, `CANCELADA`. `GET /aulas` ignora `deleted_at` por default (includeDeleted/onlyDeleted so para staff).
 - **Listagem (`GET /aulas`):** filtros opcionais `turmaId`, `from`, `to`, `status`. Sem filtros de data aplica janela de **hoje** no `APP_TIMEZONE` ([startUtc, endUtc)). Retorna turma (diasSemana, horarioPadrao, instrutorPadrao*), tipoTreino e, para staff, dados do QR se existirem.
 - **Detalhe (`GET /aulas/:id`):** mesma estrutura da lista; qrToken/qrExpiresAt so aparecem para staff. Nao retorna aulas deletadas/turmas deletadas.
+- **Presencas da aula (`GET /aulas/:id/presencas`) [STAFF]:** lista presencas daquela aula filtrando por `status=PENDENTE|PRESENTE|FALTA` e `q` (ILIKE em `aluno.nome`). Ordenacao fixa: PENDENTE > PRESENTE > FALTA, depois `alunoNome` asc. Retorna `{ aulaId, resumo { total, pendentes, presentes, faltas }, itens[] }` com auditoria (`decidido_em/por`, `decisao_observacao`, `updated_at`) apenas se as colunas existirem. Ignora aula/turma deletada salvo `includeDeleted=true`.
 - **Criacao (`POST /aulas`):** valida turma da academia e nao deletada, `dataFim > dataInicio`, sem duplicidade `turma+dataInicio` (`409`). Status default `AGENDADA`.
 - **Atualizacao (`PATCH /aulas/:id`):** permite alterar datas/status; bloqueia duplicidade de horario (`409`) e valida ordem das datas.
 - **Delete (`DELETE /aulas/:id`):** soft-delete (`deleted_at`), limpa QR token.
 - **Lote (`POST /aulas/lote`):** gera aulas `AGENDADA` entre `fromDate/toDate` (YYYY-MM-DD). Usa `diasSemana`/`horaInicio`/`duracaoMinutos` do corpo ou, se ausentes, da turma (`dias_semana`, `horario_padrao`, `90min`). Ignora duplicadas (`deleted_at is null`); resposta `{ criadas, ignoradas, conflitos[] }`.
 - **Aulas de hoje (`GET /aulas/hoje`):** staff; usa janela de hoje (`APP_TIMEZONE`), ignora `CANCELADA` e `deleted_at` (aula/turma).
+- **Encerrar (`POST /aulas/:id/encerrar`) [STAFF]:** define `status=ENCERRADA`, preenche `data_fim` com `coalesce(data_fim, now())` e limpa `qr_token/qr_expires_at`. Retorna 409 se `status=CANCELADA`; ignora aula/turma deletada por default (aceita `includeDeleted=true`). Resposta simples `{ id, status, dataFim, qrToken: null, qrExpiresAt: null }`.
+- **Presença manual (`POST /aulas/:id/presencas/manual`) [STAFF]:** registra presença manualmente. Payload: `{ alunoId, status?: 'PRESENTE'|'FALTA', observacao?, includeDeleted? }`. Anti-duplicidade: se já existe PENDENTE, decide; se já PRESENTE/FALTA e mesmo status, retorna idempotente; status diferente retorna `409`. Colunas de auditoria (`decidido_em/por`, `decisao_observacao`) preenchidas se existirem. `origem = 'SISTEMA'`.
 - **Curls (staff):**
   ```bash
   ACCESS_TOKEN="<token-professor>"
+  AULA_ID="<aulaId>"
   # listar aulas de hoje (default)
   curl http://localhost:3000/v1/aulas \
     -H "Authorization: Bearer $ACCESS_TOKEN"
@@ -368,6 +372,15 @@ Notas:
     -H "Authorization: Bearer $ACCESS_TOKEN"
   # detalhe
   curl http://localhost:3000/v1/aulas/<aulaId> \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+  # presencas da aula (sem filtro)
+  curl "http://localhost:3000/v1/aulas/$AULA_ID/presencas" \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+  # presencas filtrando pendentes
+  curl "http://localhost:3000/v1/aulas/$AULA_ID/presencas?status=PENDENTE" \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
+  # presencas filtrando por nome
+  curl "http://localhost:3000/v1/aulas/$AULA_ID/presencas?q=seed" \
     -H "Authorization: Bearer $ACCESS_TOKEN"
   # criar aula avulsa
   curl -X POST http://localhost:3000/v1/aulas \
@@ -382,11 +395,25 @@ Notas:
   # deletar (soft)
   curl -X DELETE http://localhost:3000/v1/aulas/<aulaId> \
     -H "Authorization: Bearer $ACCESS_TOKEN"
+  # encerrar aula (idempotente; limpa QR e preenche data_fim se nula)
+  curl -X POST "http://localhost:3000/v1/aulas/$AULA_ID/encerrar" \
+    -H "Authorization: Bearer $ACCESS_TOKEN"
   # gerar em lote (usa diasSemana/horarioPadrao da turma se nao enviados)
   curl -X POST http://localhost:3000/v1/aulas/lote \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"turmaId":"<turmaId>","fromDate":"2025-01-01","toDate":"2025-01-15","diasSemana":[1,3],"horaInicio":"19:00","duracaoMinutos":90}'
+  # presenca manual PRESENTE (staff)
+  ALUNO_ID="<alunoId>"
+  curl -X POST "http://localhost:3000/v1/aulas/$AULA_ID/presencas/manual" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"alunoId":"'"$ALUNO_ID"'","status":"PRESENTE","observacao":"Manual"}'
+  # presenca manual FALTA (staff)
+  curl -X POST "http://localhost:3000/v1/aulas/$AULA_ID/presencas/manual" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"alunoId":"'"$ALUNO_ID"'","status":"FALTA"}'
   ```
 
 ### 3.5 Check-in & Presencas (real)

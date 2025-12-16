@@ -184,15 +184,18 @@ curl -X DELETE http://localhost:3000/v1/turmas/<turmaId> \
 - Status validos: `AGENDADA`, `ENCERRADA`, `CANCELADA`. Soft-delete com `deleted_at`; includeDeleted/onlyDeleted so para staff.
 - `GET /v1/aulas`: filtros opcionais `turmaId`, `from`, `to`, `status`. Sem datas, usa janela de **hoje** no `APP_TIMEZONE`. Retorna turma (diasSemana, horarioPadrao, instrutorPadraoId/nome), tipo de treino e, para staff, info do QR se existir.
 - `GET /v1/aulas/:id`: detalhe completo; qrToken/qrExpiresAt so aparecem para staff. Ignora aulas/turmas deletadas.
+- `GET /v1/aulas/:id/presencas` (STAFF): lista presencas da aula filtrando por `status=PENDENTE|PRESENTE|FALTA` e busca (`q`) no nome do aluno. Ordena PENDENTE > PRESENTE > FALTA e monta resumo `{ total, pendentes, presentes, faltas }`. Ignora aulas/turmas deletadas, a menos que `includeDeleted=true`.
 - `POST /v1/aulas`: cria aula avulsa (valida turma da academia e nao deletada, `dataFim > dataInicio`, sem duplicidade `turma+dataInicio` -> `409`).
 - `PATCH /v1/aulas/:id`: altera datas/status; bloqueia conflito de horario (`409`).
 - `DELETE /v1/aulas/:id`: soft-delete (limpa QR).
 - `POST /v1/aulas/lote`: gera aulas `AGENDADA` no intervalo `fromDate/toDate` (YYYY-MM-DD). Usa `diasSemana`/`horaInicio`/`duracaoMinutos` do corpo ou da turma (padrao 90min). Ignora duplicadas (`deleted_at is null`) e retorna `{ criadas, ignoradas, conflitos[] }`.
 - `GET /v1/aulas/hoje`: staff; usa janela de hoje (`APP_TIMEZONE`), ignora canceladas/deletadas.
+- `POST /v1/aulas/:id/encerrar` (STAFF): seta `status=ENCERRADA`, preenche `data_fim` se estiver nula e zera `qr_token/qr_expires_at`. 409 se a aula estiver `CANCELADA`; respeita `includeDeleted` para consultar aulas/turmas soft-deletadas.
 
 Exemplos (professor):
 ```bash
 ACCESS_TOKEN="<token-professor>"
+AULA_ID="<aulaId>"
 
 # listar aulas (default = hoje)
 curl http://localhost:3000/v1/aulas \
@@ -204,6 +207,18 @@ curl "http://localhost:3000/v1/aulas?from=2025-01-01&to=2025-01-07&status=AGENDA
 
 # detalhe
 curl http://localhost:3000/v1/aulas/<aulaId> \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# presencas da aula (sem filtro)
+curl "http://localhost:3000/v1/aulas/$AULA_ID/presencas" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# presencas filtrando pendentes
+curl "http://localhost:3000/v1/aulas/$AULA_ID/presencas?status=PENDENTE" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# presencas com busca pelo nome do aluno
+curl "http://localhost:3000/v1/aulas/$AULA_ID/presencas?q=seed" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 
 # criar aula avulsa
@@ -220,6 +235,10 @@ curl -X PATCH http://localhost:3000/v1/aulas/<aulaId> \
 
 # deletar (soft)
 curl -X DELETE http://localhost:3000/v1/aulas/<aulaId> \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# encerrar aula (idempotente; fecha QR e preenche data_fim se nula)
+curl -X POST "http://localhost:3000/v1/aulas/$AULA_ID/encerrar" \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 
 # gerar aulas em lote (usa dias_semana/horario_padrao da turma se nao enviados)
@@ -445,6 +464,6 @@ curl "http://localhost:3000/v1/alunos/$ALUNO_ID/historico-presencas?from=2025-01
 - Se alterar `JWT_SECRET`, todos os tokens antigos (emitidos antes da troca) deixam de funcionar.
 
 ## Estado atual da API
-- **Real (Postgres):** `POST /v1/auth/login`, `GET /v1/auth/me`, `GET /v1/auth/convite/:codigo`, `POST /v1/auth/register`, `GET /v1/home`, `GET /v1/dashboard/aluno`, `GET /v1/dashboard/staff`, `GET /v1/alunos`, `GET /v1/alunos/:id`, `GET /v1/alunos/:id/evolucao`, `GET /v1/alunos/:id/historico-presencas`, `GET /v1/config/tipos-treino`, `GET /v1/turmas`, `GET /v1/turmas/:id`, `POST /v1/turmas`, `PATCH /v1/turmas/:id`, `DELETE /v1/turmas/:id`, `POST /v1/turmas/:id/restore`, `GET /v1/aulas`, `GET /v1/aulas/:id`, `POST /v1/aulas`, `PATCH /v1/aulas/:id`, `DELETE /v1/aulas/:id`, `POST /v1/aulas/lote`, `GET /v1/aulas/hoje`, `GET /v1/aulas/:id/qrcode`, `GET /v1/checkin/disponiveis`, `POST /v1/checkin`, `GET /v1/presencas/pendencias`, `PATCH /v1/presencas/:id/decisao`, `POST /v1/presencas/pendencias/lote`.
+- **Real (Postgres):** `POST /v1/auth/login`, `GET /v1/auth/me`, `GET /v1/auth/convite/:codigo`, `POST /v1/auth/register`, `GET /v1/home`, `GET /v1/dashboard/aluno`, `GET /v1/dashboard/staff`, `GET /v1/alunos`, `GET /v1/alunos/:id`, `GET /v1/alunos/:id/evolucao`, `GET /v1/alunos/:id/historico-presencas`, `GET /v1/config/tipos-treino`, `GET /v1/turmas`, `GET /v1/turmas/:id`, `POST /v1/turmas`, `PATCH /v1/turmas/:id`, `DELETE /v1/turmas/:id`, `POST /v1/turmas/:id/restore`, `GET /v1/aulas`, `GET /v1/aulas/:id`, `GET /v1/aulas/:id/presencas`, `POST /v1/aulas`, `PATCH /v1/aulas/:id`, `DELETE /v1/aulas/:id`, `POST /v1/aulas/lote`, `GET /v1/aulas/hoje`, `GET /v1/aulas/:id/qrcode`, `POST /v1/aulas/:id/encerrar`, `GET /v1/checkin/disponiveis`, `POST /v1/checkin`, `GET /v1/presencas/pendencias`, `PATCH /v1/presencas/:id/decisao`, `POST /v1/presencas/pendencias/lote`.
 - **Stub/mock (retorno provisorio):** `GET /v1/config/regras-graduacao`, `PUT /v1/config/regras-graduacao/:faixaSlug`, `POST /v1/invites`, `POST /v1/graduacoes`, `POST /v1/auth/refresh`, `POST /v1/auth/forgot-password`, `POST /v1/auth/reset-password`.
 - Prefixo global `/v1`; Swagger em `/v1/docs`.

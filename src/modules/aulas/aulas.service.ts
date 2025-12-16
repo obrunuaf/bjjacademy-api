@@ -14,7 +14,12 @@ import { AulaResponseDto } from './dtos/aula-response.dto';
 import { CreateAulaDto } from './dtos/create-aula.dto';
 import { CreateAulasLoteDto } from './dtos/create-aulas-lote.dto';
 import { CreateAulasLoteResponseDto } from './dtos/create-aulas-lote-response.dto';
+import { CreatePresencaManualDto } from './dtos/create-presenca-manual.dto';
+import { EncerrarAulaResponseDto } from './dtos/encerrar-aula-response.dto';
+import { ListarPresencasAulaQueryDto } from './dtos/listar-presencas-aula.query.dto';
 import { ListAulasQueryDto } from './dtos/list-aulas-query.dto';
+import { PresencaAulaItemDto } from './dtos/presenca-aula-item.dto';
+import { PresencasAulaResponseDto } from './dtos/presencas-aula-response.dto';
 import { UpdateAulaDto } from './dtos/update-aula.dto';
 
 export type CurrentUser = {
@@ -42,9 +47,42 @@ type AulaRow = {
   academia_id: string;
 };
 
+type AulaBasicaRow = {
+  id: string;
+  status: string;
+  data_fim: string | null;
+  qr_token: string | null;
+  qr_expires_at: string | null;
+  deleted_at: string | null;
+  turma_deleted_at: string | null;
+};
+
+type PresencaAulaRow = {
+  presenca_id: string;
+  aluno_id: string;
+  aluno_nome: string;
+  status: string;
+  origem: 'QR_CODE' | 'SISTEMA' | 'MANUAL';
+  criado_em: string;
+  registrado_por: string | null;
+  updated_at: string | null;
+  decidido_em: string | null;
+  decidido_por: string | null;
+  decisao_observacao: string | null;
+};
+
+type PresencaAuditColumns = {
+  updatedAt: boolean;
+  decididoEm: boolean;
+  decididoPor: boolean;
+  decisaoObservacao: boolean;
+};
+
 @Injectable()
 export class AulasService {
   constructor(private readonly databaseService: DatabaseService) {}
+
+  private presencaAuditColumnsPromise?: Promise<PresencaAuditColumns>;
 
   async listarHoje(currentUser: CurrentUser): Promise<AulaDto[]> {
     const tz = this.databaseService.getAppTimezone();
@@ -182,6 +220,76 @@ export class AulasService {
     }
 
     return this.mapRow(aula, { includeQr: this.userIsStaff(currentUser) });
+  }
+
+  async listarPresencasDaAula(
+    id: string,
+    query: ListarPresencasAulaQueryDto,
+    currentUser: CurrentUser,
+  ): Promise<PresencasAulaResponseDto> {
+    this.ensureStaff(currentUser);
+    const includeDeleted = !!query.includeDeleted;
+
+    const aula = await this.buscarAulaBasica(id, currentUser.academiaId, includeDeleted);
+    if (!aula) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+    if (!includeDeleted && (aula.deleted_at || aula.turma_deleted_at)) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+
+    const auditColumns = await this.getPresencaAuditColumns();
+    const select = this.buildPresencaAulaSelect(auditColumns);
+    const where: string[] = ['p.aula_id = $1', 'p.academia_id = $2'];
+    const params: any[] = [id, currentUser.academiaId];
+    let idx = 3;
+
+    if (query.status) {
+      where.push(`p.status = $${idx}`);
+      params.push(query.status);
+      idx += 1;
+    }
+
+    if (query.q) {
+      where.push(`u.nome_completo ilike $${idx}`);
+      params.push(`%${query.q}%`);
+      idx += 1;
+    }
+
+    const presencas = await this.databaseService.query<PresencaAulaRow>(
+      `
+        select ${select}
+        from presencas p
+        join usuarios u on u.id = p.aluno_id
+        where ${where.join(' and ')}
+        order by
+          case
+            when p.status = 'PENDENTE' then 0
+            when p.status = 'PRESENTE' then 1
+            when p.status = 'FALTA' then 2
+            else 3
+          end asc,
+          u.nome_completo asc;
+      `,
+      params,
+    );
+
+    const resumo = {
+      total: presencas.length,
+      pendentes: 0,
+      presentes: 0,
+      faltas: 0,
+    };
+
+    const itens = presencas.map((row) => {
+      if (row.status === 'PENDENTE') resumo.pendentes += 1;
+      if (row.status === 'PRESENTE') resumo.presentes += 1;
+      if (row.status === 'FALTA') resumo.faltas += 1;
+
+      return this.mapPresencaAula(row);
+    });
+
+    return { aulaId: id, resumo, itens };
   }
 
   async criar(
@@ -513,6 +621,63 @@ export class AulasService {
     return this.mapRow(restored);
   }
 
+  async encerrarAula(
+    id: string,
+    currentUser: CurrentUser,
+    includeDeleted?: boolean,
+  ): Promise<EncerrarAulaResponseDto> {
+    this.ensureStaff(currentUser);
+    const allowDeleted = !!includeDeleted;
+
+    const aula = await this.buscarAulaBasica(id, currentUser.academiaId, allowDeleted);
+    if (!aula) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+    if (!allowDeleted && (aula.deleted_at || aula.turma_deleted_at)) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+
+    if (aula.status === 'CANCELADA') {
+      throw new ConflictException('Aula cancelada nao pode ser encerrada');
+    }
+
+    const updated = await this.databaseService.queryOne<AulaBasicaRow>(
+      `
+        update aulas a
+           set status = 'ENCERRADA',
+               data_fim = coalesce(a.data_fim, now()),
+               qr_token = null,
+               qr_expires_at = null
+         from turmas t
+        where a.id = $1
+          and a.academia_id = $2
+          and t.id = a.turma_id
+          ${allowDeleted ? '' : 'and a.deleted_at is null and t.deleted_at is null'}
+         returning
+           a.id,
+           a.status,
+           a.data_fim,
+           a.qr_token,
+           a.qr_expires_at,
+           a.deleted_at,
+           t.deleted_at as turma_deleted_at;
+      `,
+      [id, currentUser.academiaId],
+    );
+
+    if (!updated) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+
+    return {
+      id: updated.id,
+      status: 'ENCERRADA',
+      dataFim: new Date(updated.data_fim ?? new Date()).toISOString(),
+      qrToken: null,
+      qrExpiresAt: null,
+    };
+  }
+
   async cancelar(id: string, currentUser: CurrentUser): Promise<AulaResponseDto> {
     this.ensureStaff(currentUser);
     const aula = await this.buscarAula(id, currentUser.academiaId, {
@@ -556,6 +721,319 @@ export class AulasService {
     }
 
     return this.mapRow(updated);
+  }
+
+  async criarPresencaManual(
+    aulaId: string,
+    dto: CreatePresencaManualDto,
+    currentUser: CurrentUser,
+  ): Promise<PresencaAulaItemDto> {
+    this.ensureStaff(currentUser);
+    const includeDeleted = !!dto.includeDeleted;
+    const statusFinal = dto.status ?? 'PRESENTE';
+
+    // 1. Validate aula exists
+    const aula = await this.buscarAulaBasica(aulaId, currentUser.academiaId, includeDeleted);
+    if (!aula) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+    if (!includeDeleted && (aula.deleted_at || aula.turma_deleted_at)) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+
+    // 2. Validate aluno belongs to academia (via matrícula ATIVA)
+    const aluno = await this.databaseService.queryOne<{
+      id: string;
+      nome_completo: string;
+    }>(
+      `
+        select u.id, u.nome_completo
+        from usuarios u
+        join matriculas m on m.usuario_id = u.id
+        where u.id = $1
+          and m.academia_id = $2
+          and m.status = 'ATIVA'
+        limit 1;
+      `,
+      [dto.alunoId, currentUser.academiaId],
+    );
+
+    if (!aluno) {
+      throw new NotFoundException('Aluno nao encontrado ou sem matricula ativa na academia');
+    }
+
+    const auditColumns = await this.getPresencaAuditColumns();
+
+    // 3. Check for existing presença
+    const existente = await this.databaseService.queryOne<{
+      id: string;
+      status: string;
+    }>(
+      `select id, status from presencas where aula_id = $1 and aluno_id = $2 limit 1;`,
+      [aulaId, dto.alunoId],
+    );
+
+    if (existente) {
+      // Anti-duplicity logic
+      if (existente.status === 'PENDENTE') {
+        // Update PENDENTE → decided status
+        const updated = await this.updatePresencaToDecided(
+          existente.id,
+          statusFinal,
+          currentUser.id,
+          dto.observacao,
+          auditColumns,
+          aluno.nome_completo,
+        );
+        return updated;
+      }
+
+      if (existente.status === statusFinal) {
+        // Idempotent: return existing
+        return this.fetchPresencaItem(existente.id, aluno.nome_completo, auditColumns);
+      }
+
+      // Conflito: já decidido com status diferente
+      throw new ConflictException(
+        `Presenca ja decidida (status=${existente.status})`,
+      );
+    }
+
+    // 4. INSERT new presença with SISTEMA origem
+    const insertCols = [
+      'academia_id',
+      'aula_id',
+      'aluno_id',
+      'status',
+      'origem',
+      'registrado_por',
+    ];
+    const insertVals = ['$1', '$2', '$3', '$4', '$5', '$6'];
+    const params: any[] = [
+      currentUser.academiaId,
+      aulaId,
+      dto.alunoId,
+      statusFinal,
+      'SISTEMA',
+      currentUser.id,
+    ];
+    let idx = 7;
+
+    if (auditColumns.decididoEm) {
+      insertCols.push('decidido_em');
+      insertVals.push('now()');
+    }
+    if (auditColumns.decididoPor) {
+      insertCols.push('decidido_por');
+      insertVals.push(`$${idx}`);
+      params.push(currentUser.id);
+      idx += 1;
+    }
+    if (auditColumns.decisaoObservacao) {
+      insertCols.push('decisao_observacao');
+      insertVals.push(`$${idx}`);
+      params.push(dto.observacao ?? null);
+      idx += 1;
+    }
+
+    const selectCols = this.buildPresencaAulaSelect(auditColumns);
+
+    const created = await this.databaseService.queryOne<PresencaAulaRow>(
+      `
+        with ins as (
+          insert into presencas (${insertCols.join(', ')})
+          values (${insertVals.join(', ')})
+          returning *
+        )
+        select ${selectCols}
+        from ins p
+        join usuarios u on u.id = p.aluno_id;
+      `,
+      params,
+    );
+
+    if (!created) {
+      throw new BadRequestException('Falha ao criar presenca');
+    }
+
+    return this.mapPresencaAula(created);
+  }
+
+  private async updatePresencaToDecided(
+    presencaId: string,
+    status: 'PRESENTE' | 'FALTA',
+    userId: string,
+    observacao: string | undefined,
+    auditColumns: PresencaAuditColumns,
+    alunoNome: string,
+  ): Promise<PresencaAulaItemDto> {
+    const setClauses: string[] = ['status = $1'];
+    const params: any[] = [status];
+    let idx = 2;
+
+    if (auditColumns.decididoEm) {
+      setClauses.push('decidido_em = now()');
+    }
+    if (auditColumns.decididoPor) {
+      setClauses.push(`decidido_por = $${idx}`);
+      params.push(userId);
+      idx += 1;
+    }
+    if (auditColumns.decisaoObservacao) {
+      setClauses.push(`decisao_observacao = $${idx}`);
+      params.push(observacao ?? null);
+      idx += 1;
+    }
+
+    params.push(presencaId);
+    const selectCols = this.buildPresencaAulaSelect(auditColumns);
+
+    const updated = await this.databaseService.queryOne<PresencaAulaRow>(
+      `
+        with upd as (
+          update presencas
+          set ${setClauses.join(', ')}
+          where id = $${idx}
+          returning *
+        )
+        select ${selectCols}
+        from upd p
+        join usuarios u on u.id = p.aluno_id;
+      `,
+      params,
+    );
+
+    if (!updated) {
+      throw new NotFoundException('Presenca nao encontrada');
+    }
+
+    return this.mapPresencaAula(updated);
+  }
+
+  private async fetchPresencaItem(
+    presencaId: string,
+    alunoNome: string,
+    auditColumns: PresencaAuditColumns,
+  ): Promise<PresencaAulaItemDto> {
+    const selectCols = this.buildPresencaAulaSelect(auditColumns);
+    const row = await this.databaseService.queryOne<PresencaAulaRow>(
+      `
+        select ${selectCols}
+        from presencas p
+        join usuarios u on u.id = p.aluno_id
+        where p.id = $1;
+      `,
+      [presencaId],
+    );
+
+    if (!row) {
+      throw new NotFoundException('Presenca nao encontrada');
+    }
+
+    return this.mapPresencaAula(row);
+  }
+
+  private mapPresencaAula(row: PresencaAulaRow): PresencaAulaItemDto {
+    return {
+      presencaId: row.presenca_id,
+      alunoId: row.aluno_id,
+      alunoNome: row.aluno_nome,
+      status: row.status as PresencaAulaItemDto['status'],
+      origem: row.origem,
+      criadoEm: new Date(row.criado_em).toISOString(),
+      registradoPor: row.registrado_por ?? null,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+      decididoEm: row.decidido_em ? new Date(row.decidido_em).toISOString() : null,
+      decididoPor: row.decidido_por ?? null,
+      decisaoObservacao: row.decisao_observacao ?? null,
+    };
+  }
+
+  private buildPresencaAulaSelect(
+    auditColumns: PresencaAuditColumns,
+  ): string {
+    const select = [
+      'p.id as presenca_id',
+      'p.aluno_id',
+      'u.nome_completo as aluno_nome',
+      'p.status',
+      'p.origem',
+      'p.criado_em',
+      'p.registrado_por',
+      auditColumns.updatedAt
+        ? 'p.updated_at as updated_at'
+        : 'null::timestamptz as updated_at',
+      auditColumns.decididoEm
+        ? 'p.decidido_em as decidido_em'
+        : 'null::timestamptz as decidido_em',
+      auditColumns.decididoPor
+        ? 'p.decidido_por as decidido_por'
+        : 'null::uuid as decidido_por',
+      auditColumns.decisaoObservacao
+        ? 'p.decisao_observacao as decisao_observacao'
+        : 'null::text as decisao_observacao',
+    ];
+
+    return select.join(', ');
+  }
+
+  private async buscarAulaBasica(
+    id: string,
+    academiaId: string,
+    includeDeleted: boolean,
+  ): Promise<AulaBasicaRow | null> {
+    return this.databaseService.queryOne<AulaBasicaRow>(
+      `
+        select
+          a.id,
+          a.status,
+          a.data_fim,
+          a.qr_token,
+          a.qr_expires_at,
+          a.deleted_at,
+          t.deleted_at as turma_deleted_at
+        from aulas a
+        join turmas t on t.id = a.turma_id
+        where a.id = $1
+          and a.academia_id = $2
+          ${includeDeleted ? '' : 'and a.deleted_at is null and t.deleted_at is null'}
+        limit 1;
+      `,
+      [id, academiaId],
+    );
+  }
+
+  private async getPresencaAuditColumns(): Promise<PresencaAuditColumns> {
+    if (!this.presencaAuditColumnsPromise) {
+      this.presencaAuditColumnsPromise = this.databaseService
+        .query<{ column_name: string }>(
+          `
+            select column_name
+            from information_schema.columns
+            where table_schema = 'public'
+              and table_name = 'presencas'
+              and column_name = any($1)
+          `,
+          [['updated_at', 'decidido_em', 'decidido_por', 'decisao_observacao']],
+        )
+        .then((rows) => {
+          const set = new Set(rows.map((row) => row.column_name));
+          return {
+            updatedAt: set.has('updated_at'),
+            decididoEm: set.has('decidido_em'),
+            decididoPor: set.has('decidido_por'),
+            decisaoObservacao: set.has('decisao_observacao'),
+          };
+        })
+        .catch(() => ({
+          updatedAt: false,
+          decididoEm: false,
+          decididoPor: false,
+          decisaoObservacao: false,
+        }));
+    }
+
+    return this.presencaAuditColumnsPromise;
   }
 
   private ensureStaff(user: CurrentUser) {
