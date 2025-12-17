@@ -16,6 +16,7 @@ import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { MatriculasModule } from './modules/matriculas/matriculas.module';
 import { AcademiaModule } from './modules/academia/academia.module';
+import { EquipeModule } from './modules/equipe/equipe.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -45,6 +46,7 @@ import { APP_GUARD } from '@nestjs/core';
     UsersModule,
     MatriculasModule,
     AcademiaModule,
+    EquipeModule,
   ],
   providers: [
     {
