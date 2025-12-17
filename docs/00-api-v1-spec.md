@@ -267,6 +267,50 @@ curl http://localhost:3000/v1/auth/me \
 - `POST /auth/register` - conclui cadastro a partir de convite (matricula ATIVA).
 - `POST /auth/refresh` - renova tokens (mock; sera evoluida).
 
+### 3.3 Matriculas (Staff)
+
+#### 3.3.1 GET `/staff/matriculas/pendentes`
+
+- **Descricao**: lista matriculas com status PENDENTE (aguardando aprovacao do staff).
+- **Auth**: Bearer JWT (INSTRUTOR+)
+- **Resposta**:
+  ```json
+  [
+    {
+      "id": "uuid",
+      "usuarioId": "uuid",
+      "nomeCompleto": "Nome do Aluno",
+      "email": "aluno@example.com",
+      "telefone": "+5511999999999",
+      "numeroMatricula": 7,
+      "status": "PENDENTE",
+      "dataSolicitacao": "2025-12-17T00:00:00.000Z"
+    }
+  ]
+  ```
+
+#### 3.3.2 PATCH `/staff/matriculas/:id`
+
+- **Descricao**: aprova ou rejeita matricula pendente.
+- **Auth**: Bearer JWT (INSTRUTOR+)
+- **Payload**:
+  ```json
+  {
+    "decisao": "APROVAR",
+    "faixaInicialSlug": "branca",
+    "motivoRejeicao": null
+  }
+  ```
+- **Valores de `decisao`**: `APROVAR` ou `REJEITAR`
+- **Resposta**:
+  ```json
+  {
+    "id": "uuid",
+    "status": "ATIVA",
+    "message": "Matricula aprovada com sucesso"
+  }
+  ```
+
 ### 3.2 Dashboards & Home
 
 #### 3.2.0 GET `/home`
