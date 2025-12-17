@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AuthRepository, UserProfileRow } from './auth.repository';
 import { AuthTokensDto } from './dtos/auth-tokens.dto';
@@ -46,7 +47,7 @@ export class AuthService {
     private readonly authRepository: AuthRepository,
   ) {}
 
-  async login(dto: LoginDto): Promise<AuthTokensDto> {
+  async login(dto: LoginDto, deviceInfo?: string): Promise<AuthTokensDto> {
     if (!dto.senha) {
       throw new BadRequestException('Senha e obrigatoria');
     }
@@ -78,9 +79,17 @@ export class AuthService {
       academiaId: principal.academia_id,
     };
 
+    // Generate real refresh token
+    const refreshToken = await this.generateRefreshToken(
+      usuario.usuario_id,
+      deviceInfo || 'Unknown Device',
+      null,
+      null,
+    );
+
     return {
       accessToken: this.jwtService.sign(payload),
-      refreshToken: 'mock-refresh-token',
+      refreshToken,
       user: {
         id: payload.sub,
         nome: usuario.nome_completo,
@@ -274,27 +283,64 @@ export class AuthService {
     };
   }
 
-  async refresh(dto: RefreshTokenDto): Promise<AuthTokensDto> {
+  async refresh(dto: RefreshTokenDto, deviceInfo?: string): Promise<AuthTokensDto> {
+    if (!dto.refreshToken) {
+      throw new UnauthorizedException('Refresh token obrigatorio');
+    }
+
+    // Hash the incoming token and find in database
+    const tokenHash = this.hashToken(dto.refreshToken);
+    const storedToken = await this.authRepository.findValidRefreshToken(tokenHash);
+
+    if (!storedToken) {
+      throw new UnauthorizedException('Refresh token invalido ou expirado');
+    }
+
+    // Get user info
+    const usuarios = await this.authRepository.findUserWithRolesAndAcademiasByUserId(
+      storedToken.usuario_id,
+    );
+
+    if (!usuarios.length) {
+      throw new UnauthorizedException('Usuario nao encontrado');
+    }
+
+    const usuario = usuarios[0];
+    const principal = this.pickPrimaryRole(usuarios);
+    const roles = this.getRolesForAcademia(usuarios, principal.academia_id);
+    const primaryRole = this.getPrimaryRole(roles);
+
+    // Revoke old token (rotation)
+    await this.authRepository.revokeRefreshToken(storedToken.id);
+
+    // Generate new refresh token
+    const newRefreshToken = await this.generateRefreshToken(
+      usuario.usuario_id,
+      deviceInfo || 'Unknown Device',
+      null,
+      null,
+    );
+
     const payload = {
-      sub: 'mock-user-id',
-      email: 'user@example.com',
-      role: UserRole.ALUNO,
-      roles: [UserRole.ALUNO],
-      academiaId: 'mock-academia-id',
+      sub: usuario.usuario_id,
+      email: usuario.email,
+      role: primaryRole,
+      roles,
+      academiaId: principal.academia_id,
     };
+
     return {
       accessToken: this.jwtService.sign(payload),
-      refreshToken: dto.refreshToken || 'mock-refresh-token',
+      refreshToken: newRefreshToken,
       user: {
         id: payload.sub,
-        nome: 'Mock User',
+        nome: usuario.nome_completo,
         email: payload.email,
         role: payload.role,
-        roles: payload.roles,
+        roles,
         academiaId: payload.academiaId,
       },
     };
-    // TODO: validar refresh token real (spec 3.1.4)
   }
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<{
@@ -463,4 +509,43 @@ export class AuthService {
   private normalizeRole(role: string | UserRole | null | undefined): UserRole {
     return ((role as string) ?? UserRole.ALUNO).toUpperCase() as UserRole;
   }
+
+  // =============== REFRESH TOKEN HELPERS ===============
+
+  /**
+   * Generate a random refresh token and store its hash in the database
+   */
+  private async generateRefreshToken(
+    usuarioId: string,
+    deviceInfo: string | null,
+    ipAddress: string | null,
+    userAgent: string | null,
+  ): Promise<string> {
+    // Generate random token (64 bytes = 128 hex chars)
+    const token = crypto.randomBytes(64).toString('hex');
+    const tokenHash = this.hashToken(token);
+    
+    // Expires in 30 days
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    await this.authRepository.createRefreshToken({
+      usuarioId,
+      tokenHash,
+      deviceInfo,
+      ipAddress,
+      userAgent,
+      expiresAt,
+    });
+
+    return token;
+  }
+
+  /**
+   * Hash token with SHA256 for storage
+   */
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
 }
+

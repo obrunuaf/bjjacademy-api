@@ -88,6 +88,33 @@ export class AuthRepository {
     ]);
   }
 
+  async findUserWithRolesAndAcademiasByUserId(
+    usuarioId: string,
+  ): Promise<UserWithRolesAndAcademias[]> {
+    const query = `
+      select
+        u.id as usuario_id,
+        u.email,
+        u.nome_completo,
+        u.status,
+        u.faixa_atual_slug,
+        u.grau_atual,
+        u.senha_hash,
+        up.papel,
+        up.academia_id,
+        a.nome as academia_nome
+      from usuarios u
+      join usuarios_papeis up on up.usuario_id = u.id
+      join academias a on a.id = up.academia_id
+      where u.id = $1
+        and u.status = 'ACTIVE';
+    `;
+
+    return this.databaseService.query<UserWithRolesAndAcademias>(query, [
+      usuarioId,
+    ]);
+  }
+
   async findUserProfileByIdAndAcademia(
     usuarioId: string,
     academiaId: string,
@@ -373,5 +400,113 @@ export class AuthRepository {
       `UPDATE usuarios SET ${sets.join(', ')} WHERE id = $${idx} RETURNING id, telefone, data_nascimento`,
       params,
     ) as Promise<{ id: string; telefone: string | null; data_nascimento: string | null }>;
+  }
+
+  // =============== REFRESH TOKEN METHODS ===============
+
+  /**
+   * Create a new refresh token for a user session
+   */
+  async createRefreshToken(params: {
+    usuarioId: string;
+    tokenHash: string;
+    deviceInfo: string | null;
+    ipAddress: string | null;
+    userAgent: string | null;
+    expiresAt: Date;
+  }): Promise<{ id: string }> {
+    return this.databaseService.queryOne<{ id: string }>(
+      `
+        INSERT INTO refresh_tokens (usuario_id, token_hash, device_info, ip_address, user_agent, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id;
+      `,
+      [
+        params.usuarioId,
+        params.tokenHash,
+        params.deviceInfo,
+        params.ipAddress,
+        params.userAgent,
+        params.expiresAt,
+      ],
+    ) as Promise<{ id: string }>;
+  }
+
+  /**
+   * Find valid refresh token by hash
+   */
+  async findValidRefreshToken(tokenHash: string): Promise<{
+    id: string;
+    usuario_id: string;
+    expires_at: Date;
+  } | null> {
+    return this.databaseService.queryOne<{
+      id: string;
+      usuario_id: string;
+      expires_at: Date;
+    }>(
+      `
+        SELECT id, usuario_id, expires_at
+        FROM refresh_tokens
+        WHERE token_hash = $1
+          AND revoked_at IS NULL
+          AND expires_at > now()
+        LIMIT 1;
+      `,
+      [tokenHash],
+    );
+  }
+
+  /**
+   * Revoke a refresh token (logout)
+   */
+  async revokeRefreshToken(tokenId: string): Promise<void> {
+    await this.databaseService.query(
+      `UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1`,
+      [tokenId],
+    );
+  }
+
+  /**
+   * Revoke all refresh tokens for a user (logout from all devices)
+   */
+  async revokeAllRefreshTokens(usuarioId: string): Promise<void> {
+    await this.databaseService.query(
+      `UPDATE refresh_tokens SET revoked_at = now() WHERE usuario_id = $1 AND revoked_at IS NULL`,
+      [usuarioId],
+    );
+  }
+
+  /**
+   * Update last used timestamp
+   */
+  async updateRefreshTokenLastUsed(tokenId: string): Promise<void> {
+    await this.databaseService.query(
+      `UPDATE refresh_tokens SET ultimo_uso = now() WHERE id = $1`,
+      [tokenId],
+    );
+  }
+
+  /**
+   * List active sessions for a user
+   */
+  async listUserSessions(usuarioId: string): Promise<Array<{
+    id: string;
+    device_info: string | null;
+    ip_address: string | null;
+    criado_em: string;
+    ultimo_uso: string | null;
+  }>> {
+    return this.databaseService.query(
+      `
+        SELECT id, device_info, ip_address, criado_em, ultimo_uso
+        FROM refresh_tokens
+        WHERE usuario_id = $1
+          AND revoked_at IS NULL
+          AND expires_at > now()
+        ORDER BY criado_em DESC;
+      `,
+      [usuarioId],
+    );
   }
 }
