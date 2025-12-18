@@ -111,5 +111,24 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordWithOtpDto): Promise<ResetPasswordResponseDto> {
     return this.authService.resetPassword(dto);
   }
+
+  @Post('logout')
+  @ApiOperation({ summary: 'Logout (revoga refresh token)' })
+  @ApiOkResponse({ description: 'Logout realizado com sucesso' })
+  async logout(@Body() dto: { refreshToken: string }): Promise<{ message: string }> {
+    return this.authService.logout(dto.refreshToken);
+  }
+
+  @Post('logout-all')
+  @UseGuards(JwtAuthGuard)
+  @ApiAuth()
+  @ApiOperation({ summary: 'Logout de todos os dispositivos' })
+  @ApiOkResponse({ description: 'Todas as sessões revogadas' })
+  async logoutAll(
+    @CurrentUser() user: { id: string },
+  ): Promise<{ sessionsRevoked: number; message: string }> {
+    return this.authService.logoutAll(user.id);
+  }
 }
+
 

@@ -343,6 +343,41 @@ export class AuthService {
     };
   }
 
+  /**
+   * Logout - revoke a specific refresh token
+   */
+  async logout(refreshToken: string): Promise<{ message: string }> {
+    if (!refreshToken) {
+      throw new BadRequestException('Refresh token obrigatorio');
+    }
+
+    const tokenHash = this.hashToken(refreshToken);
+    const storedToken = await this.authRepository.findValidRefreshToken(tokenHash);
+
+    if (storedToken) {
+      await this.authRepository.revokeRefreshToken(storedToken.id);
+    }
+
+    // Always return success (don't reveal if token existed)
+    return { message: 'Logout realizado com sucesso' };
+  }
+
+  /**
+   * Logout from all devices - revoke all refresh tokens for the user
+   */
+  async logoutAll(userId: string): Promise<{ sessionsRevoked: number; message: string }> {
+    // Count active sessions before revoking
+    const sessions = await this.authRepository.listUserSessions(userId);
+    const count = sessions.length;
+
+    await this.authRepository.revokeAllRefreshTokens(userId);
+
+    return {
+      sessionsRevoked: count,
+      message: `${count} sessao(oes) encerrada(s) com sucesso`,
+    };
+  }
+
   async forgotPassword(dto: ForgotPasswordDto): Promise<{
     message: string;
     devOtp?: string;
