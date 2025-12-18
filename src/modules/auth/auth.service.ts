@@ -11,6 +11,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { AuthRepository, UserProfileRow } from './auth.repository';
 import { AuthTokensDto } from './dtos/auth-tokens.dto';
 import { ForgotPasswordDto } from './dtos/forgot-password.dto';
+import { EmailService } from '../email/email.service';
 import { InviteValidationDto } from './dtos/invite-validation.dto';
 import { LoginDto } from './dtos/login.dto';
 import { RefreshTokenDto } from './dtos/refresh-token.dto';
@@ -45,6 +46,7 @@ export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly authRepository: AuthRepository,
+    private readonly emailService: EmailService,
   ) {}
 
   async login(dto: LoginDto, deviceInfo?: string): Promise<AuthTokensDto> {
@@ -206,6 +208,13 @@ export class AuthService {
       novoUsuario.usuario_id,
     );
 
+    // Send welcome email (don't await to avoid blocking response)
+    this.emailService.sendWelcomeEmail(
+      dto.email,
+      dto.nomeCompleto ?? dto.nome ?? dto.email,
+      invite.academia_nome,
+    ).catch(err => console.error('Error sending welcome email (register):', err));
+
     const payload = {
       sub: novoUsuario.usuario_id,
       email: dto.email,
@@ -260,6 +269,13 @@ export class AuthService {
       papel: UserRole.ALUNO,
       matriculaStatus: 'PENDENTE', // Self-service = pending approval
     });
+
+    // Send welcome email
+    this.emailService.sendWelcomeEmail(
+      dto.email,
+      dto.nomeCompleto,
+      academia.nome,
+    ).catch(err => console.error('Error sending welcome email (signup):', err));
 
     const payload = {
       sub: novoUsuario.usuario_id,
@@ -407,9 +423,9 @@ export class AuthService {
       expiresAt,
     );
 
-    // TODO: Send email with OTP in production
-    // For now, log it (remove in production)
-    console.log(`[DEV] OTP for ${dto.email}: ${otp}`);
+    // Send OTP email
+  await this.emailService.sendOtpEmail(dto.email, otp);
+  
 
     // Return OTP only in non-production (for contract tests)
     const isDev = process.env.NODE_ENV !== 'production';

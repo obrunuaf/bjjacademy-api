@@ -13,6 +13,7 @@ import { AcademiaStatusGuard } from '../../common/guards/academia-status.guard';
 import { CreateInviteDto } from './dtos/create-invite.dto';
 import { InviteDto } from './dtos/invite.dto';
 import { InvitesService } from './invites.service';
+import { CurrentUser } from '../../common/decorators/user.decorator';
 
 @ApiTags('Invites')
 @ApiAuth()
@@ -25,7 +26,10 @@ export class InvitesController {
   @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
   @ApiOperation({ summary: 'Gera convite para onboarding' })
   @ApiCreatedResponse({ type: InviteDto })
-  async criar(@Body() dto: CreateInviteDto): Promise<InviteDto> {
-    return this.invitesService.criar(dto);
+  async criar(
+    @Body() dto: CreateInviteDto,
+    @CurrentUser() user: { id: string; academiaId: string },
+  ): Promise<InviteDto> {
+    return this.invitesService.criar(dto, user);
   }
 }

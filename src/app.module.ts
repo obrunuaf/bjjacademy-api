@@ -20,6 +20,7 @@ import { EquipeModule } from './modules/equipe/equipe.module';
 import { RedeModule } from './modules/rede/rede.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { EmailModule } from './modules/email/email.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { APP_GUARD } from '@nestjs/core';
     AcademiaModule,
     EquipeModule,
     RedeModule,
+    EmailModule,
   ],
   providers: [
     {
