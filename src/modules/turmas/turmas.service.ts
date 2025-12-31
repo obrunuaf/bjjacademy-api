@@ -125,10 +125,12 @@ export class TurmasService {
     // Calcular duração em minutos
     const [horaInicioH, horaInicioM] = dto.horaInicio.split(':').map(Number);
     const [horaFimH, horaFimM] = dto.horaFim.split(':').map(Number);
-    const duracaoMinutos = (horaFimH * 60 + horaFimM) - (horaInicioH * 60 + horaInicioM);
+    
+    let duracaoMinutos = (horaFimH * 60 + horaFimM) - (horaInicioH * 60 + horaInicioM);
 
+    // Se a duração for negativa ou zero, assume que termina no dia seguinte
     if (duracaoMinutos <= 0) {
-      throw new BadRequestException('horaFim deve ser maior que horaInicio');
+      duracaoMinutos += 24 * 60; // Soma 24h
     }
 
     const turma = await this.databaseService.queryOne<TurmaRow & { academia_id: string }>(
@@ -305,7 +307,8 @@ export class TurmasService {
       // Calcular duração em minutos
       const [hI, mI] = novaHoraInicio.split(':').map(Number);
       const [hF, mF] = novaHoraFim.split(':').map(Number);
-      const duracaoMinutos = (hF * 60 + mF) - (hI * 60 + mI);
+      let duracaoMinutos = (hF * 60 + mF) - (hI * 60 + mI);
+      if (duracaoMinutos <= 0) duracaoMinutos += 24 * 60; // Crosses midnight
 
       // Atualizar aulas futuras agendadas
       const tz = this.databaseService.getAppTimezone();
@@ -442,7 +445,8 @@ export class TurmasService {
     // Calcular duração em minutos
     const [horaInicioH, horaInicioM] = (row.hora_inicio || '00:00').split(':').map(Number);
     const [horaFimH, horaFimM] = (row.hora_fim || '00:00').split(':').map(Number);
-    const duracaoMinutos = (horaFimH * 60 + horaFimM) - (horaInicioH * 60 + horaInicioM);
+    let duracaoMinutos = (horaFimH * 60 + horaFimM) - (horaInicioH * 60 + horaInicioM);
+    if (duracaoMinutos < 0) duracaoMinutos += 24 * 60; // Crosses midnight (in mapRow we allow 0 if same time, but usually shouldn't happen)
 
     return {
       id: row.id,
@@ -695,7 +699,8 @@ export class TurmasService {
     // Calcular duração a partir de hora_inicio e hora_fim da turma
     const [horaInicioH, horaInicioM] = (turma.hora_inicio || '00:00').split(':').map(Number);
     const [horaFimH, horaFimM] = (turma.hora_fim || '00:00').split(':').map(Number);
-    const duracaoMinutos = (horaFimH * 60 + horaFimM) - (horaInicioH * 60 + horaInicioM);
+    let duracaoMinutos = (horaFimH * 60 + horaFimM) - (horaInicioH * 60 + horaInicioM);
+    if (duracaoMinutos <= 0) duracaoMinutos += 24 * 60; // Crosses midnight
 
     // Gerar aulas usando criarEmLote
     const result = await this.aulasService.criarEmLote(

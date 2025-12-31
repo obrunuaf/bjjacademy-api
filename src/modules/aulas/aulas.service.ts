@@ -124,7 +124,7 @@ export class AulasService {
         join tipos_treino tt on tt.id = t.tipo_treino_id
         left join usuarios instrutor on instrutor.id = COALESCE(a.instrutor_id, t.instrutor_padrao_id)
         where a.academia_id = $1
-          and a.data_inicio >= $2
+          and a.data_fim > $2
           and a.data_inicio < $3
           and a.status <> 'CANCELADA'
           and a.deleted_at is null
@@ -1266,7 +1266,7 @@ export class AulasService {
     }
 
     if (fromValue) {
-      where.push(`a.data_inicio >= $${idx}`);
+      where.push(`a.data_fim > $${idx}`);
       params.push(fromValue);
       idx += 1;
     }
@@ -1280,8 +1280,8 @@ export class AulasService {
     if (!fromValue && !toValue) {
       const { startUtc, endUtc } =
         await this.databaseService.getTodayBoundsUtc(tz);
-      where.push(`a.data_inicio >= $${idx}`);
       where.push(`a.data_inicio < $${idx + 1}`);
+      where.push(`a.data_fim > $${idx}`);
       params.push(startUtc, endUtc);
     }
 
