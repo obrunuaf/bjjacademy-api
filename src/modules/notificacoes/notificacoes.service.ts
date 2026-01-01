@@ -124,46 +124,53 @@ export class NotificacoesService {
     titulo: string,
     mensagem?: string,
     dadosJson?: Record<string, any>,
+    academiaId?: string,
   ): Promise<NotificacaoDto> {
     const row = await this.databaseService.queryOne<NotificacaoRow>(
       `
-      INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, dados_json)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO notificacoes (usuario_id, tipo, titulo, mensagem, dados_json, academia_id)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id, usuario_id, tipo, titulo, mensagem, dados_json, lida, lida_em, criado_em
       `,
-      [usuarioId, tipo, titulo, mensagem || null, dadosJson ? JSON.stringify(dadosJson) : null],
+      [usuarioId, tipo, titulo, mensagem || null, dadosJson ? JSON.stringify(dadosJson) : null, academiaId || null],
     );
 
     return this.mapToDto(row!);
   }
 
   // Helper para criar notificação de matrícula aprovada
-  async notificarMatriculaAprovada(usuarioId: string, academiaNome: string) {
+  async notificarMatriculaAprovada(usuarioId: string, academiaNome: string, academiaId?: string) {
     return this.criar(
       usuarioId,
       TipoNotificacao.MATRICULA_APROVADA,
       'Matrícula aprovada!',
       `Sua matrícula na ${academiaNome} foi aprovada. Você já pode fazer check-in nas aulas.`,
+      undefined,
+      academiaId,
     );
   }
 
   // Helper para notificar próxima aula
-  async notificarProximaAula(usuarioId: string, turmaNome: string, horario: string) {
+  async notificarProximaAula(usuarioId: string, turmaNome: string, horario: string, academiaId?: string) {
     return this.criar(
       usuarioId,
       TipoNotificacao.AULA_PROXIMA,
       `Aula em breve: ${turmaNome}`,
       `Sua aula começa às ${horario}. Não se atrase!`,
+      undefined,
+      academiaId,
     );
   }
 
   // Helper para streak alcançado
-  async notificarStreak(usuarioId: string, semanas: number) {
+  async notificarStreak(usuarioId: string, semanas: number, academiaId?: string) {
     return this.criar(
       usuarioId,
       TipoNotificacao.STREAK_ALCANCADO,
       `🔥 ${semanas} semanas consecutivas!`,
       `Parabéns! Você está treinando há ${semanas} semanas sem faltar. Continue assim!`,
+      undefined,
+      academiaId,
     );
   }
 

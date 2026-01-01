@@ -1,7 +1,9 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
+  Body,
   Param,
   Query,
   UseGuards,
@@ -10,6 +12,8 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/user.decorator';
 import { NotificacoesService } from './notificacoes.service';
+import { PreferenciasNotificacaoService } from './preferencias-notificacao.service';
+import { CreatePreferenciaDto, UpdatePreferenciaDto } from './dtos/preferencias-notificacao.dto';
 
 interface CurrentUserPayload {
   id: string;
@@ -24,7 +28,10 @@ interface CurrentUserPayload {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class NotificacoesController {
-  constructor(private readonly notificacoesService: NotificacoesService) {}
+  constructor(
+    private readonly notificacoesService: NotificacoesService,
+    private readonly preferenciasService: PreferenciasNotificacaoService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Lista notificações do usuário (paginado)' })
@@ -70,5 +77,57 @@ export class NotificacoesController {
   @ApiOperation({ summary: 'Marca todas as notificações como lidas' })
   async marcarTodasComoLidas(@CurrentUser() user: CurrentUserPayload) {
     return this.notificacoesService.marcarTodasComoLidas(user.id);
+  }
+
+  // ========== PREFERÊNCIAS ==========
+
+  @Get('preferencias')
+  @ApiOperation({ summary: 'Lista preferências de notificação do usuário' })
+  async listarPreferencias(@CurrentUser() user: CurrentUserPayload) {
+    return this.preferenciasService.listar(user.id);
+  }
+
+  @Post('preferencias')
+  @ApiOperation({ summary: 'Cria/atualiza preferência de notificação' })
+  async criarPreferencia(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: CreatePreferenciaDto,
+  ) {
+    return this.preferenciasService.criar(user.id, dto);
+  }
+
+  @Patch('preferencias/:tipo')
+  @ApiOperation({ summary: 'Atualiza preferência de notificação por tipo' })
+  @ApiQuery({ name: 'academiaId', required: false, type: String })
+  async atualizarPreferencia(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('tipo') tipo: string,
+    @Query('academiaId') academiaId?: string,
+    @Body() dto?: UpdatePreferenciaDto,
+  ) {
+    return this.preferenciasService.atualizar(
+      user.id,
+      academiaId || null,
+      tipo,
+      dto || {},
+    );
+  }
+
+  @Post('preferencias/:tipo/silenciar')
+  @ApiOperation({ summary: 'Silencia notificações por período: 1h, 8h, 24h, 7d, sempre' })
+  @ApiQuery({ name: 'academiaId', required: false, type: String })
+  @ApiQuery({ name: 'duracao', required: true, enum: ['1h', '8h', '24h', '7d', 'sempre'] })
+  async silenciar(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('tipo') tipo: string,
+    @Query('academiaId') academiaId?: string,
+    @Query('duracao') duracao: '1h' | '8h' | '24h' | '7d' | 'sempre' = '8h',
+  ) {
+    return this.preferenciasService.silenciar(
+      user.id,
+      academiaId || null,
+      tipo,
+      duracao,
+    );
   }
 }

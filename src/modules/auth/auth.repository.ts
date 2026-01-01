@@ -151,6 +151,33 @@ export class AuthRepository {
     ]);
   }
 
+  async findUserManagementStats(usuarioId: string): Promise<Array<{
+    academia_id: string;
+    pendencias_count: number;
+    notificacoes_count: number;
+    aula_agora: boolean;
+  }>> {
+    const query = `
+      SELECT 
+        up.academia_id,
+        -- Só conta pendências se o usuário for ADMIN, PROFESSOR ou TI nessa academia
+        CASE 
+          WHEN up.papel IN ('ADMIN', 'PROFESSOR', 'TI') 
+          THEN (SELECT COUNT(*)::int FROM matriculas m WHERE m.academia_id = up.academia_id AND m.status = 'PENDENTE')
+          ELSE 0 
+        END as pendencias_count,
+        (SELECT COUNT(*)::int FROM notificacoes n WHERE n.usuario_id = $1 AND n.lida = false AND (n.academia_id = up.academia_id OR n.academia_id IS NULL)) as notificacoes_count,
+        EXISTS (
+          SELECT 1 FROM aulas a 
+          WHERE a.academia_id = up.academia_id 
+          AND NOW() BETWEEN a.data_inicio AND a.data_fim
+        ) as aula_agora
+      FROM usuarios_papeis up
+      WHERE up.usuario_id = $1;
+    `;
+    return this.databaseService.query(query, [usuarioId]);
+  }
+
   async findInviteByToken(token: string) {
     const query = `
       select

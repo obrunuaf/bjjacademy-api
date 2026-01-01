@@ -99,7 +99,7 @@ export class AuthService {
         role: payload.role,
         roles,
         academiaId: payload.academiaId,
-        matriculas: this.formatMatriculas(usuarios),
+        matriculas: await this.formatMatriculasWithStats(usuario.usuario_id, usuarios),
       },
     };
   }
@@ -141,7 +141,7 @@ export class AuthService {
       matriculaDataInicio: primaryRow.matricula_data_inicio,
       matriculaDataFim: primaryRow.matricula_data_fim,
       profileComplete: primaryRow.data_nascimento !== null,
-      matriculas: this.formatMatriculas(allRows),
+      matriculas: await this.formatMatriculasWithStats(currentUser.id, allRows),
     };
   }
 
@@ -475,7 +475,7 @@ export class AuthService {
         role: payload.role,
         roles,
         academiaId: payload.academiaId,
-        matriculas: this.formatMatriculas(usuarios),
+        matriculas: await this.formatMatriculasWithStats(usuario.usuario_id, usuarios),
       },
     };
   }
@@ -711,6 +711,21 @@ export class AuthService {
     });
 
     return token;
+  }
+
+  private async formatMatriculasWithStats(usuarioId: string, usuarios: any[]): Promise<any[]> {
+    const matriculas = this.formatMatriculas(usuarios);
+    const stats = await this.authRepository.findUserManagementStats(usuarioId);
+    
+    return matriculas.map(m => {
+      const s = stats.find(stat => stat.academia_id === m.academiaId);
+      return {
+        ...m,
+        pendenciasCount: s?.pendencias_count || 0,
+        notificacoesCount: s?.notificacoes_count || 0,
+        aulaAgora: s?.aula_agora || false,
+      };
+    });
   }
 
   private formatMatriculas(usuarios: any[]): any[] {

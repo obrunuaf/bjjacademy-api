@@ -13,4 +13,13 @@ export class UserMatriculaDto {
 
   @ApiProperty({ enum: UserRole })
   papel: UserRole;
+
+  @ApiProperty({ required: false })
+  pendenciasCount?: number;
+
+  @ApiProperty({ required: false })
+  notificacoesCount?: number;
+
+  @ApiProperty({ required: false })
+  aulaAgora?: boolean;
 }
