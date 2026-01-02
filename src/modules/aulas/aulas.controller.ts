@@ -43,6 +43,7 @@ import { ListAulasQueryDto } from './dtos/list-aulas-query.dto';
 import { PresencaAulaItemDto } from './dtos/presenca-aula-item.dto';
 import { PresencasAulaResponseDto } from './dtos/presencas-aula-response.dto';
 import { UpdateAulaDto } from './dtos/update-aula.dto';
+import { CancelAulaDto } from './dtos/cancel-aula.dto';
 
 @ApiTags('Aulas')
 @ApiAuth()
@@ -248,9 +249,21 @@ export class AulasController {
   @ApiOkResponse({ type: AulaResponseDto })
   async cancelar(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: CancelAulaDto,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<AulaResponseDto> {
-    return this.aulasService.cancelar(id, user);
+    return this.aulasService.cancelar(id, dto, user);
+  }
+
+  @Post(':id/reopen')
+  @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
+  @ApiOperation({ summary: 'Reabre aula cancelada (status=AGENDADA)' })
+  @ApiOkResponse({ type: AulaResponseDto })
+  async reabrir(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<AulaResponseDto> {
+    return this.aulasService.reabrir(id, user);
   }
 
   @Get(':id/qrcode')

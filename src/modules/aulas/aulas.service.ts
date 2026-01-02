@@ -8,6 +8,7 @@ import {
 import { randomBytes } from 'crypto';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { DatabaseService } from '../../database/database.service';
+import { NotificacoesService } from '../notificacoes/notificacoes.service';
 import { AulaQrCodeDto } from './dtos/aula-qrcode.dto';
 import { AulaDto } from './dtos/aula.dto';
 import { AulaResponseDto } from './dtos/aula-response.dto';
@@ -21,6 +22,7 @@ import { ListAulasQueryDto } from './dtos/list-aulas-query.dto';
 import { PresencaAulaItemDto } from './dtos/presenca-aula-item.dto';
 import { PresencasAulaResponseDto } from './dtos/presencas-aula-response.dto';
 import { UpdateAulaDto } from './dtos/update-aula.dto';
+import { CancelAulaDto } from './dtos/cancel-aula.dto';
 
 export type CurrentUser = {
   id: string;
@@ -46,6 +48,11 @@ type AulaRow = {
   qr_expires_at?: string | null;
   deleted_at: string | null;
   academia_id: string;
+  cancelamento_motivo: string | null;
+  cancelamento_observacao: string | null;
+  cancelado_por: string | null;
+  cancelado_por_nome?: string | null;
+  cancelado_em: string | null;
 };
 
 type AulaBasicaRow = {
@@ -62,6 +69,8 @@ type PresencaAulaRow = {
   presenca_id: string;
   aluno_id: string;
   aluno_nome: string;
+  faixa_atual_slug?: string;
+  grau_atual?: number;
   status: string;
   origem: 'QR_CODE' | 'SISTEMA' | 'MANUAL';
   criado_em: string;
@@ -69,7 +78,7 @@ type PresencaAulaRow = {
   updated_at: string | null;
   decidido_em: string | null;
   decidido_por: string | null;
-  decisao_observacao: string | null;
+  observacao: string | null;
 };
 
 type PresencaAuditColumns = {
@@ -81,7 +90,10 @@ type PresencaAuditColumns = {
 
 @Injectable()
 export class AulasService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly notificacoesService: NotificacoesService,
+  ) {}
 
   private presencaAuditColumnsPromise?: Promise<PresencaAuditColumns>;
 
@@ -213,6 +225,11 @@ export class AulasService {
           t.dias_semana as turma_dias_semana,
           a.deleted_at,
           a.academia_id,
+          a.cancelamento_motivo,
+          a.cancelamento_observacao,
+          a.cancelado_por,
+          cancelador.nome_completo as cancelado_por_nome,
+          a.cancelado_em,
           (
             select count(*)::int 
             from presencas p 
@@ -230,6 +247,7 @@ export class AulasService {
         join turmas t on t.id = a.turma_id
         join tipos_treino tt on tt.id = t.tipo_treino_id
         left join usuarios instrutor on instrutor.id = COALESCE(a.instrutor_id, t.instrutor_padrao_id)
+        left join usuarios cancelador on cancelador.id = a.cancelado_por
         where ${where.join(' and ')}
           order by a.data_inicio asc;
       `,
@@ -744,7 +762,11 @@ export class AulasService {
     };
   }
 
-  async cancelar(id: string, currentUser: CurrentUser): Promise<AulaResponseDto> {
+  async cancelar(
+    id: string,
+    dto: CancelAulaDto,
+    currentUser: CurrentUser,
+  ): Promise<AulaResponseDto> {
     this.ensureStaff(currentUser);
     const aula = await this.buscarAula(id, currentUser.academiaId, {
       includeDeleted: false,
@@ -754,12 +776,30 @@ export class AulasService {
       throw new NotFoundException('Aula nao encontrada');
     }
 
+    if (aula.status === 'ENCERRADA') {
+      throw new ConflictException('Nao e possivel cancelar uma aula que ja foi encerrada');
+    }
+
+    // Verifica se existem presenças confirmadas
+    const presencas = await this.databaseService.queryOne<{ count: string }>(
+      'select count(*)::int as count from presencas where aula_id = $1 and status = \'PRESENTE\'',
+      [id],
+    );
+
+    if (presencas && parseInt(presencas.count) > 0) {
+      throw new ConflictException('Nao e possivel cancelar uma aula que ja possui presenças registradas');
+    }
+
     const updated = await this.databaseService.queryOne<AulaRow>(
       `
         update aulas
            set status = 'CANCELADA',
                qr_token = null,
-               qr_expires_at = null
+               qr_expires_at = null,
+               cancelamento_motivo = $3,
+               cancelamento_observacao = $4,
+               cancelado_por = $5,
+               cancelado_em = now()
          where id = $1
            and academia_id = $2
          returning
@@ -780,8 +820,111 @@ export class AulasService {
               END
             ) 
             from tipos_treino where id = (select tipo_treino_id from turmas where id = turma_id)) as tipo_treino_cor,
-           (select u.nome_completo from usuarios u join turmas t on t.instrutor_padrao_id = u.id where t.id = turma_id) as instrutor_nome,
-           (select instrutor_padrao_id from turmas where id = turma_id) as instrutor_id,
+           (select u.nome_completo from usuarios u where u.id = COALESCE(instrutor_id, (select instrutor_padrao_id from turmas where id = turma_id))) as instrutor_nome,
+           COALESCE(instrutor_id, (select instrutor_padrao_id from turmas where id = turma_id)) as instrutor_id,
+           (select to_char(hora_inicio, 'HH24:MI') from turmas where id = turma_id) as turma_hora_inicio,
+           (select dias_semana from turmas where id = turma_id) as turma_dias_semana,
+           qr_token,
+           qr_expires_at,
+           deleted_at,
+           academia_id;
+      `,
+      [
+        id,
+        currentUser.academiaId,
+        dto.motivo,
+        dto.observacao ?? null,
+        currentUser.id,
+      ],
+    );
+
+    if (!updated) {
+      throw new NotFoundException('Aula nao encontrada');
+    }
+
+    // Se solicitado, notifica os alunos da academia
+    if (dto.notificarAlunos) {
+      try {
+        // Busca todos os alunos com matrícula ativa na academia
+        const alunosAtivos = await this.databaseService.query<{
+          usuario_id: string;
+        }>(
+          `
+          select distinct usuario_id 
+          from matriculas 
+          where academia_id = $1 
+            and status = 'ATIVA'
+          `,
+          [currentUser.academiaId],
+        );
+
+        if (alunosAtivos.length > 0) {
+          const dataHoraRef = new Date(updated.data_inicio).toLocaleString(
+            'pt-BR',
+            {
+              day: '2-digit',
+              month: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+            },
+          );
+
+          // Notifica cada aluno de forma assíncrona
+          Promise.all(
+            alunosAtivos.map((aluno) =>
+              this.notificacoesService.notificarAulaCancelada(
+                aluno.usuario_id,
+                updated.turma_nome,
+                dataHoraRef,
+                dto.notificarAlunos ? dto.motivo : '', // Na verdade dto.motivo sempre existe se chegamos aqui
+                currentUser.academiaId,
+              ),
+            ),
+          ).catch((err) => {
+            console.error('Erro ao enviar notificacoes de cancelamento:', err);
+          });
+        }
+      } catch (err) {
+        console.error('Falha ao processar notificacoes de cancelamento:', err);
+      }
+    }
+
+    return this.mapRow(updated);
+  }
+
+  async reabrir(id: string, currentUser: CurrentUser): Promise<AulaResponseDto> {
+    this.ensureStaff(currentUser);
+
+    const updated = await this.databaseService.queryOne<AulaRow>(
+      `
+        update aulas
+           set status = 'AGENDADA',
+               cancelamento_motivo = null,
+               cancelamento_observacao = null,
+               cancelado_por = null,
+               cancelado_em = null
+         where id = $1
+           and academia_id = $2
+         returning
+           id,
+           data_inicio,
+           data_fim,
+           status,
+           turma_id,
+           (select nome from turmas where id = turma_id) as turma_nome,
+           (select nome from tipos_treino where id = (select tipo_treino_id from turmas where id = turma_id)) as tipo_treino,
+           (select 
+            COALESCE(cor_identificacao, 
+              CASE 
+                WHEN lower(nome) LIKE '%kids%' OR lower(nome) LIKE '%infantil%' THEN '#22C55E'
+                WHEN lower(nome) LIKE '%no-gi%' OR lower(nome) LIKE '%nogi%' THEN '#F97316'
+                WHEN lower(nome) LIKE '%gi%' THEN '#3B82F6'
+                ELSE '#6B7280'
+              END
+            ) 
+            from tipos_treino where id = (select tipo_treino_id from turmas where id = turma_id)) as tipo_treino_cor,
+           (select u.nome_completo from usuarios u where u.id = COALESCE(instrutor_id, (select instrutor_padrao_id from turmas where id = turma_id))) as instrutor_nome,
+           COALESCE(instrutor_id, (select instrutor_padrao_id from turmas where id = turma_id)) as instrutor_id,
            (select to_char(hora_inicio, 'HH24:MI') from turmas where id = turma_id) as turma_hora_inicio,
            (select dias_semana from turmas where id = turma_id) as turma_dias_semana,
            qr_token,
@@ -829,6 +972,7 @@ export class AulasService {
         where u.id = $1
           and m.academia_id = $2
           and m.status = 'ATIVA'
+          and COALESCE(u.perfil_completo, false) = true
         limit 1;
       `,
       [dto.alunoId, currentUser.academiaId],
@@ -1014,14 +1158,16 @@ export class AulasService {
       presencaId: row.presenca_id,
       alunoId: row.aluno_id,
       alunoNome: row.aluno_nome,
+      alunoFaixa: row.faixa_atual_slug ?? null,
+      alunoGrau: row.grau_atual ?? null,
       status: row.status as PresencaAulaItemDto['status'],
-      origem: row.origem,
+      origem: row.origem as any,
       criadoEm: new Date(row.criado_em).toISOString(),
       registradoPor: row.registrado_por ?? null,
       updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
       decididoEm: row.decidido_em ? new Date(row.decidido_em).toISOString() : null,
       decididoPor: row.decidido_por ?? null,
-      decisaoObservacao: row.decisao_observacao ?? null,
+      decisaoObservacao: row.observacao ?? null,
     };
   }
 
@@ -1032,6 +1178,8 @@ export class AulasService {
       'p.id as presenca_id',
       'p.aluno_id',
       'u.nome_completo as aluno_nome',
+      'u.faixa_atual_slug',
+      'u.grau_atual',
       'p.status',
       'p.origem',
       'p.criado_em',
@@ -1329,11 +1477,17 @@ export class AulasService {
           a.qr_token,
           a.qr_expires_at,
           a.deleted_at,
-          a.academia_id
+          a.academia_id,
+          a.cancelamento_motivo,
+          a.cancelamento_observacao,
+          a.cancelado_por,
+          cancelador.nome_completo as cancelado_por_nome,
+          a.cancelado_em
         from aulas a
         join turmas t on t.id = a.turma_id
         join tipos_treino tt on tt.id = t.tipo_treino_id
         left join usuarios instrutor on instrutor.id = COALESCE(a.instrutor_id, t.instrutor_padrao_id)
+        left join usuarios cancelador on cancelador.id = a.cancelado_por
         where a.id = $1
           and a.academia_id = $2
           and t.deleted_at is null
@@ -1380,6 +1534,11 @@ export class AulasService {
       deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : null,
       presentes: row.presentes,
       meuCheckin: row.meu_checkin ?? null,
+      cancelamentoMotivo: row.cancelamento_motivo ?? null,
+      cancelamentoObservacao: row.cancelamento_observacao ?? null,
+      canceladoPor: row.cancelado_por ?? null,
+      canceladoPorNome: row.cancelado_por_nome ?? null,
+      canceladoEm: row.cancelado_em ? new Date(row.cancelado_em).toISOString() : null,
     };
   }
 

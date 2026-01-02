@@ -11,6 +11,7 @@ export enum TipoNotificacao {
   GRADUACAO_APROVADA = 'GRADUACAO_APROVADA',
   STREAK_ALCANCADO = 'STREAK_ALCANCADO',
   META_ALCANCADA = 'META_ALCANCADA',
+  AULA_CANCELADA = 'AULA_CANCELADA',
   SISTEMA = 'SISTEMA',
 }
 
@@ -170,6 +171,24 @@ export class NotificacoesService {
       `🔥 ${semanas} semanas consecutivas!`,
       `Parabéns! Você está treinando há ${semanas} semanas sem faltar. Continue assim!`,
       undefined,
+      academiaId,
+    );
+  }
+
+  // Helper para aula cancelada
+  async notificarAulaCancelada(
+    usuarioId: string,
+    turmaNome: string,
+    dataHora: string,
+    motivo: string,
+    academiaId?: string,
+  ) {
+    return this.criar(
+      usuarioId,
+      TipoNotificacao.AULA_CANCELADA,
+      `Aula Cancelada: ${turmaNome}`,
+      `A aula de ${dataHora} foi cancelada. Motivo: ${motivo}`,
+      { turmaNome, dataHora, motivo },
       academiaId,
     );
   }

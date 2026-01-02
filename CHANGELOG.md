@@ -8,10 +8,14 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ## [Não Publicado]
 
 ### Adicionado
+- **Cancelamento de Presença (02/01/2026)**:
+  - Endpoint `GET /config/motivos-cancelamento` para listar motivos
+  - Tabela `motivos_cancelamento` com suporte a motivos por academia
+  - SQL `026-motivos-cancelamento.sql` com seed inicial
+- Re-decisão de presença (`PRESENTE` → `FALTA`) via `PATCH /presencas/:id/decisao`
+- Coluna unificada `observacao` em `presencas` (substitui `decisao_observacao` e `aprovacao_observacao`)
 - Endpoint `/presencas/pendencias` com filtros `from`/`to`
 - Endpoint `/presencas/:id/decisao` para aprovar/rejeitar
-- SQL seed `019-seed-pendencias-variadas.sql` para dados de teste
-- Documentação Swagger em todos os endpoints
 
 ### Corrigido
 - **COALESCE faixa**: Usar `faixa_declarada` como fallback em endpoints:

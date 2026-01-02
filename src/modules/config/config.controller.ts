@@ -15,6 +15,7 @@ import { ConfigService, CurrentUser as CurrentUserPayload } from './config.servi
 import { RegraGraduacaoDto } from './dtos/regra-graduacao.dto';
 import { TipoTreinoDto } from './dtos/tipo-treino.dto';
 import { UpdateRegraGraduacaoDto } from './dtos/update-regra-graduacao.dto';
+import { MotivoCancelamentoDto } from './dtos/motivo-cancelamento.dto';
 
 @ApiTags('Config')
 @ApiAuth()
@@ -50,5 +51,25 @@ export class ConfigController {
     @Body() dto: UpdateRegraGraduacaoDto,
   ): Promise<RegraGraduacaoDto> {
     return this.configService.atualizarRegra(faixaSlug, dto);
+  }
+
+  @Get('motivos-cancelamento')
+  @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
+  @ApiOperation({ summary: 'Lista motivos de cancelamento de presença' })
+  @ApiOkResponse({ type: [MotivoCancelamentoDto] })
+  async listarMotivosCancelamento(
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<MotivoCancelamentoDto[]> {
+    return this.configService.listarMotivosCancelamento(user.academiaId, 'PRESENCA');
+  }
+
+  @Get('motivos-cancelamento-aula')
+  @Roles(UserRole.INSTRUTOR, UserRole.PROFESSOR, UserRole.ADMIN, UserRole.TI)
+  @ApiOperation({ summary: 'Lista motivos de cancelamento de aula' })
+  @ApiOkResponse({ type: [MotivoCancelamentoDto] })
+  async listarMotivosCancelamentoAula(
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<MotivoCancelamentoDto[]> {
+    return this.configService.listarMotivosCancelamento(user.academiaId, 'AULA');
   }
 }

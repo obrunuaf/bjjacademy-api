@@ -10,6 +10,12 @@ export class PresencaAulaItemDto {
   @ApiProperty()
   alunoNome: string;
 
+  @ApiPropertyOptional({ nullable: true })
+  alunoFaixa?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  alunoGrau?: number | null;
+
   @ApiProperty({
     enum: ['PENDENTE', 'PRESENTE', 'FALTA', 'JUSTIFICADA', 'AJUSTADO'],
   })

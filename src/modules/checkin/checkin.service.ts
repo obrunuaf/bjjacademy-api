@@ -302,10 +302,12 @@ export class CheckinService {
     const matriculaAtiva = await this.databaseService.queryOne<{ id: string }>(
       `
         select id
-        from matriculas
-        where usuario_id = $1
-          and academia_id = $2
-          and status = 'ATIVA'
+        from matriculas m
+        join usuarios u on u.id = m.usuario_id
+        where m.usuario_id = $1
+          and m.academia_id = $2
+          and m.status = 'ATIVA'
+          and COALESCE(u.perfil_completo, false) = true
         limit 1;
       `,
       [alunoId, academiaId],

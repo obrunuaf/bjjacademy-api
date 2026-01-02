@@ -151,7 +151,10 @@ export class AlunosService {
             u.grau_atual,
             v.academia_id,
             '' as academia_nome,
-            mp.matricula_status,
+            CASE 
+              WHEN COALESCE(u.perfil_completo, false) = false THEN 'INCOMPLETO'
+              ELSE COALESCE(mp.matricula_status, u.status_matricula::text, 'INCOMPLETO')
+            END as matricula_status,
             mp.numero_matricula as matricula_numero,
             mp.matricula_data_inicio,
             mp.matricula_data_fim
@@ -460,7 +463,10 @@ export class AlunosService {
           u.faixa_declarada,
           u.foto_url,
           u.foto_capa_url,
-          COALESCE(mp.matricula_status, u.status_matricula::text, 'INCOMPLETO') as status_matricula
+           CASE 
+             WHEN COALESCE(u.perfil_completo, false) = false THEN 'INCOMPLETO'
+             ELSE COALESCE(mp.matricula_status, u.status_matricula::text, 'INCOMPLETO')
+           END as status_matricula
         from usuarios u
         join vinculos v
           on v.usuario_id = u.id

@@ -54,4 +54,19 @@ export class AulaResponseDto {
 
   @ApiProperty({ description: 'Status do check-in do usuário atual', required: false, nullable: true })
   meuCheckin?: string | null;
+
+  @ApiProperty({ nullable: true })
+  cancelamentoMotivo?: string | null;
+
+  @ApiProperty({ nullable: true })
+  cancelamentoObservacao?: string | null;
+
+  @ApiProperty({ nullable: true })
+  canceladoPor?: string | null;
+
+  @ApiProperty({ nullable: true })
+  canceladoPorNome?: string | null;
+
+  @ApiProperty({ nullable: true })
+  canceladoEm?: string | null;
 }

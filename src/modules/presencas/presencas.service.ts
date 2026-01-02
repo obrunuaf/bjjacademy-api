@@ -32,8 +32,7 @@ type PendenciaRow = {
   criado_em: string;
   decidido_em?: string | null;
   decidido_por?: string | null;
-  decisao_observacao?: string | null;
-  aprovacao_observacao?: string | null;
+  observacao?: string | null;
   updated_at?: string | null;
 };
 
@@ -51,10 +50,9 @@ type PresencaRow = {
   aprovado_em?: string | null;
   rejeitado_por?: string | null;
   rejeitado_em?: string | null;
-  aprovacao_observacao?: string | null;
+  observacao?: string | null;
   decidido_por?: string | null;
   decidido_em?: string | null;
-  decisao_observacao?: string | null;
   updated_at?: string | null;
 };
 
@@ -64,10 +62,9 @@ type PresencaAuditColumns = {
   aprovadoEm: boolean;
   rejeitadoPor: boolean;
   rejeitadoEm: boolean;
-  aprovacaoObservacao: boolean;
+  observacao: boolean;
   decididoPor: boolean;
   decididoEm: boolean;
-  decisaoObservacao: boolean;
   updatedAt: boolean;
 };
 
@@ -194,10 +191,8 @@ export class PresencasService {
     const auditSelectParts: string[] = [];
     if (auditColumns.decididoEm) auditSelectParts.push('p.decidido_em');
     if (auditColumns.decididoPor) auditSelectParts.push('p.decidido_por');
-    if (auditColumns.decisaoObservacao)
-      auditSelectParts.push('p.decisao_observacao');
-    if (auditColumns.aprovacaoObservacao)
-      auditSelectParts.push('p.aprovacao_observacao');
+    if (auditColumns.observacao)
+      auditSelectParts.push('p.observacao');
     if (auditColumns.updatedAt) auditSelectParts.push('p.updated_at');
     const auditSelect =
       auditSelectParts.length > 0 ? `, ${auditSelectParts.join(', ')}` : '';
@@ -260,7 +255,7 @@ export class PresencasService {
         decididoEm: row.decidido_em ? new Date(row.decidido_em).toISOString() : null,
         decididoPor: row.decidido_por ?? null,
         decisaoObservacao:
-          row.decisao_observacao ?? row.aprovacao_observacao ?? null,
+          row.observacao ?? null,
         updatedAt: row.updated_at
           ? new Date(row.updated_at).toISOString()
           : undefined,
@@ -284,9 +279,12 @@ export class PresencasService {
       throw new ForbiddenException('Presenca nao pertence a academia do usuario');
     }
 
-    if (presenca.status !== 'PENDENTE') {
+    const decision = this.resolveDecision(dto.decisao);
+
+    // Se já estiver com o status final desejado, não faz nada ou retorna conflito se quiser ser estrito
+    if (presenca.status === decision.finalStatus) {
       throw new ConflictException(
-        `Presenca ja decidida (status=${presenca.status})`,
+        `Presenca ja esta com o status ${decision.finalStatus}`,
       );
     }
 
@@ -303,7 +301,6 @@ export class PresencasService {
            set ${update.setClause}
          where id = $${update.params.length + 1}
            and academia_id = $${update.params.length + 2}
-           and status = 'PENDENTE'
          returning ${this.buildPresencaSelect(auditColumns, 'p')};
       `,
       [...update.params, id, currentUser.academiaId],
@@ -353,14 +350,9 @@ export class PresencasService {
         ignorados.push({ id, motivo: 'FORA_DA_ACADEMIA' });
         continue;
       }
-      if (presenca.status !== 'PENDENTE') {
-        ignorados.push({
-          id,
-          motivo:
-            presenca.status === 'PRESENTE' || presenca.status === 'FALTA'
-              ? 'JA_DECIDIDA'
-              : 'NAO_PENDENTE',
-        });
+      const decision = this.resolveDecision(dto.decisao);
+      if (presenca.status === decision.finalStatus) {
+        ignorados.push({ id, motivo: `JA_${decision.finalStatus}` });
         continue;
       }
       pendentes.push(id);
@@ -381,7 +373,6 @@ export class PresencasService {
                  set ${update.setClause}
                where id = any($${update.params.length + 1}::uuid[])
                  and academia_id = $${update.params.length + 2}
-                 and status = 'PENDENTE'
                returning ${this.buildPresencaSelect(auditColumns, 'p')};
             `,
             [...update.params, pendentes, currentUser.academiaId],
@@ -413,10 +404,8 @@ export class PresencasService {
     const auditSelectParts: string[] = [];
     if (auditColumns.decididoEm) auditSelectParts.push('p.decidido_em');
     if (auditColumns.decididoPor) auditSelectParts.push('p.decidido_por');
-    if (auditColumns.decisaoObservacao)
-      auditSelectParts.push('p.decisao_observacao');
-    if (auditColumns.aprovacaoObservacao)
-      auditSelectParts.push('p.aprovacao_observacao');
+    if (auditColumns.observacao)
+      auditSelectParts.push('p.observacao');
     if (auditColumns.updatedAt) auditSelectParts.push('p.updated_at');
     const auditSelect =
       auditSelectParts.length > 0 ? `, ${auditSelectParts.join(', ')}` : '';
@@ -459,8 +448,7 @@ export class PresencasService {
       criado_em: string;
       decidido_em?: string | null;
       decidido_por?: string | null;
-      decisao_observacao?: string | null;
-      aprovacao_observacao?: string | null;
+      observacao?: string | null;
       updated_at?: string | null;
     }>(
       `
@@ -499,7 +487,7 @@ export class PresencasService {
         : undefined,
       decididoPor: row.decidido_por ?? undefined,
       decisaoObservacao:
-        row.decisao_observacao ?? row.aprovacao_observacao ?? undefined,
+        row.observacao ?? undefined,
     }));
   }
 
@@ -634,7 +622,7 @@ export class PresencasService {
         : undefined,
       decididoPor: presenca.decidido_por ?? undefined,
       decisaoObservacao:
-        presenca.decisao_observacao ?? presenca.aprovacao_observacao ?? undefined,
+        presenca.observacao ?? undefined,
     };
   }
 
@@ -659,7 +647,10 @@ export class PresencasService {
             'aprovacao_observacao',
             'decidido_por',
             'decidido_em',
-            'decisao_observacao',
+            'rejeitado_em',
+            'observacao',
+            'decidido_por',
+            'decidido_em',
             'updated_at',
           ],
         ],
@@ -672,10 +663,9 @@ export class PresencasService {
           aprovadoEm: set.has('aprovado_em'),
           rejeitadoPor: set.has('rejeitado_por'),
           rejeitadoEm: set.has('rejeitado_em'),
-          aprovacaoObservacao: set.has('aprovacao_observacao'),
+          observacao: set.has('observacao'),
           decididoPor: set.has('decidido_por'),
           decididoEm: set.has('decidido_em'),
-          decisaoObservacao: set.has('decisao_observacao'),
           updatedAt: set.has('updated_at'),
         };
       })
@@ -685,10 +675,9 @@ export class PresencasService {
         aprovadoEm: false,
         rejeitadoPor: false,
         rejeitadoEm: false,
-        aprovacaoObservacao: false,
+        observacao: false,
         decididoPor: false,
         decididoEm: false,
-        decisaoObservacao: false,
         updatedAt: false,
       }));
     }
@@ -726,17 +715,14 @@ export class PresencasService {
     if (auditColumns.rejeitadoEm) {
       columns.push(`${alias}.rejeitado_em`);
     }
-    if (auditColumns.aprovacaoObservacao) {
-      columns.push(`${alias}.aprovacao_observacao`);
-    }
     if (auditColumns.decididoPor) {
       columns.push(`${alias}.decidido_por`);
     }
     if (auditColumns.decididoEm) {
       columns.push(`${alias}.decidido_em`);
     }
-    if (auditColumns.decisaoObservacao) {
-      columns.push(`${alias}.decisao_observacao`);
+    if (auditColumns.observacao) {
+      columns.push(`${alias}.observacao`);
     }
     if (auditColumns.updatedAt) {
       columns.push(`${alias}.updated_at`);
@@ -811,11 +797,10 @@ export class PresencasService {
       );
     }
 
-    const observacaoColumn = this.resolveObservacaoColumn(auditColumns);
-    if (observacaoColumn) {
+    if (auditColumns.observacao) {
       params.push(observacao ?? null);
       const obsIndex = params.length;
-      setClauses.push(`${observacaoColumn} = $${obsIndex}`);
+      setClauses.push(`observacao = $${obsIndex}`);
     }
 
     return {
@@ -824,17 +809,6 @@ export class PresencasService {
     };
   }
 
-  private resolveObservacaoColumn(
-    auditColumns: PresencaAuditColumns,
-  ): string | null {
-    if (auditColumns.decisaoObservacao) {
-      return 'decisao_observacao';
-    }
-    if (auditColumns.aprovacaoObservacao) {
-      return 'aprovacao_observacao';
-    }
-    return null;
-  }
 
   private resolveDecision(decisao: DecisaoInput): {
     finalStatus: 'PRESENTE' | 'FALTA';
